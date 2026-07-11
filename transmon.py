@@ -74,6 +74,7 @@ class BareTransmon:
     
     @property
     def f12(self) -> float:
+        """Return the f12 transition frequency."""
         spectrum = self.spectrum
         return spectrum[2] - spectrum[1]
 
@@ -134,4 +135,3 @@ class BareTransmon:
     def anharmonicity_approx(self) -> float:
         """Approximate anharmonicity alpha/2pi using the transmon limit formula."""
         return -self.EC_over_h
-
