@@ -184,25 +184,30 @@ class TransmonCircuit:
             power_is_at_chip=power_is_at_chip,
             rms_voltage=rms_voltage,
         )
+    
+# TODO: hamiltonian and eigenstates of the full circuit, including the transmon and readout resonator
 
-    @classmethod
-    def from_f01_anharmonicity(
-        cls,
-        f01: float,
-        anharmonicity: float,
-        readout_resonator: ReadoutResonator | None = None,
-        charge_drive_line: ChargeDriveLine | None = None,
-        ng: float = 0.0,
-        n_cutoff: int = 30,
-    ) -> "TransmonCircuit":
-        transmon = Transmon.from_f01_anharmonicity(
-            f01=f01,
-            anharmonicity=anharmonicity,
-            ng=ng,
-            n_cutoff=n_cutoff,
-        )
-        return cls(
-            transmon=transmon,
-            readout_resonator=readout_resonator,
-            charge_drive_line=charge_drive_line,
-        )
+# TODO: implement this class method to construct a TransmonCircuit from dressed qubit and resonator frequencies
+    # @classmethod 
+    # def from_dressed_qubit_resonator(
+    #     cls,
+    #     dressed_qubit_frequency: float,
+    #     dressed_resonator_frequency_ground: float,
+    #     chi_readout_over_2pi: float,
+    #     anharmonicity: float,
+    #     ng: float = 0.0,
+    #     n_cutoff: int = 30,
+    # ) -> "TransmonCircuit":
+    #     transmon = Transmon.from_f01_anharmonicity(
+    #         f01=f01,
+    #         anharmonicity=anharmonicity,
+    #         ng=ng,
+    #         n_cutoff=n_cutoff,
+    #     )
+
+
+    #     return cls(
+    #         transmon=transmon,
+    #         readout_resonator=readout_resonator,
+    #         charge_drive_line=charge_drive_line,
+    #     )
