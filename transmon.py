@@ -7,7 +7,7 @@ from scipy.optimize import least_squares
 from functools import cached_property
 
 @dataclass(frozen=True)
-class BareTransmon:
+class Transmon:
     """Bare Transmon parameters stored as frequencies EJ/h and EC/h in Hz."""
 
     EJ_over_h: float
@@ -15,6 +15,26 @@ class BareTransmon:
     ng: float = 0.0
     n_cutoff: int = 30
 
+
+    @property
+    def EJ(self) -> float:
+        """Return the Josephson energy EJ in Watts."""
+        return self.EJ_over_h * 6.62607015e-34  # Planck's constant in J*s
+
+    @property
+    def EC(self) -> float:
+        """Return the charging energy EC in Watts."""
+        return self.EC_over_h * 6.62607015e-34  # Planck's constant in J*s
+
+    @property
+    def C_Sigma(self) -> float:
+        """Return the effective capacitance C of the transmon in Farads."""
+        return (1.602176634e-19) ** 2 / (2 * self.EC)  # C = (e)^2 / (2EC)
+
+    @property
+    def Ic(self) -> float:
+        """Return the critical current Ic of the Josephson junction in Amperes."""
+        return (2 * 1.602176634e-19 * 2 * np.pi) * self.EJ_over_h  # Ic = (2e/hbar) * EJ = (2e * 2pi) * EJ/h
 
     def transmon_hamiltonian(
         self, EJ_over_h: float, EC_over_h: float, ng: float = 0.0, n_cutoff: int = 30
@@ -71,7 +91,14 @@ class BareTransmon:
         """Return the f01 transition frequency."""
         spectrum = self.spectrum
         return spectrum[1] - spectrum[0]
-    
+
+
+    @property
+    def f02(self) -> float:
+        """Return the f02 transition frequency."""
+        spectrum = self.spectrum
+        return spectrum[2] - spectrum[0]
+
     @property
     def f12(self) -> float:
         """Return the f12 transition frequency."""
@@ -85,7 +112,24 @@ class BareTransmon:
         return spectrum[2] - 2 * spectrum[1] + spectrum[0]
 
     @classmethod
-    def from_f01_alpha(cls, f01: float, anharmonicity: float, n_cutoff: int = 30) -> "BareTransmon":
+    def from_f01_anharmonicity(cls, f01: float, anharmonicity: float, n_cutoff: int = 30) -> "Transmon":
+        """ 
+        Create a Transmon instance from the f01 transition frequency and anharmonicity.
+
+        Parameters
+        ----------
+        f01 : float
+            The f01 transition frequency in Hz.
+        anharmonicity : float
+            The anharmonicity alpha/2pi in Hz.
+        n_cutoff : int, optional
+            The number of charge states to include in the calculation, by default 30.
+
+        Returns
+        -------
+        Transmon
+            A Transmon instance with the specified f01 and anharmonicity.
+        """
         if f01 <= 0:
             raise ValueError("f01 must be positive")
         if anharmonicity >= 0:
@@ -135,3 +179,4 @@ class BareTransmon:
     def anharmonicity_approx(self) -> float:
         """Approximate anharmonicity alpha/2pi using the transmon limit formula."""
         return -self.EC_over_h
+
