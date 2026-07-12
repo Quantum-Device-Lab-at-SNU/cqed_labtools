@@ -2,105 +2,99 @@ from dataclasses import dataclass
 from typing import Literal
 import numpy as np
 
+from constants import H_PLANCK
+
 
 CouplingGeometry = Literal["single_sided", "two_sided", "side_coupled"]
 
 
 @dataclass(frozen=True)
 class ReadoutResonator:
-    """Readout resonator with explicit input-output coupling geometry.
+    """Readout resonator with input-output geometry and optional qubit coupling.
 
-    All frequency-like quantities are in Hz.
+    All frequency-like quantities are in Hz unless the property name omits
+    ``over_2pi``, in which case the returned value is angular rate in rad/s.
 
-    Attributes
+    Parameters
     ----------
-    f_resonator : float
-        Resonator frequency in Hz.
-    kappa_internal_over_2pi : float
-        Internal coupling rate to the resonator in Hz.
-    coupling_geometry : CouplingGeometry
-        Geometry of the input-output coupling.
-    kappa_input_over_2pi : float | None
-        Input coupling rate to the resonator in Hz. Required for single_sided and two_sided geometries.
-    kappa_output_over_2pi : float | None
-        Output coupling rate from the resonator in Hz. Required for two_sided and side_coupled geometries.
+    frequency:
+        Bare resonator frequency in Hz.
+    kappa_internal_over_2pi:
+        Internal loss rate kappa_int / 2pi in Hz.
+    coupling_geometry:
+        ``single_sided``, ``two_sided``, or ``side_coupled``.
+    kappa_input_over_2pi:
+        Input coupling rate in Hz.
+    kappa_output_over_2pi:
+        Output coupling rate in Hz. Required for two_sided and side_coupled.
+    g_over_2pi:
+        Optional qubit-resonator coupling strength in Hz.
     """
 
-    f_resonator: float
+    frequency: float
     kappa_internal_over_2pi: float
     coupling_geometry: CouplingGeometry
-
     kappa_input_over_2pi: float | None = None
     kappa_output_over_2pi: float | None = None
+    g_over_2pi: float | None = None
 
     def __post_init__(self) -> None:
-        if self.f_resonator <= 0:
-            raise ValueError("resonator frequency must be positive")
+        if self.frequency <= 0:
+            raise ValueError("frequency must be positive")
         if self.kappa_internal_over_2pi < 0:
-            raise ValueError("kappa_internal must be non-negative")
+            raise ValueError("kappa_internal_over_2pi must be non-negative")
+        if self.g_over_2pi is not None and self.g_over_2pi <= 0:
+            raise ValueError("g_over_2pi must be positive when provided")
 
         if self.coupling_geometry == "single_sided":
             if self.kappa_input_over_2pi is None:
-                raise ValueError("single_sided resonator requires kappa_input")
+                raise ValueError("single_sided resonator requires kappa_input_over_2pi")
             if self.kappa_output_over_2pi is not None:
-                raise ValueError("single_sided resonator should not use kappa_output")
-
-        elif self.coupling_geometry == "two_sided":
+                raise ValueError("single_sided resonator should not use kappa_output_over_2pi")
+        elif self.coupling_geometry in {"two_sided", "side_coupled"}:
             if self.kappa_input_over_2pi is None or self.kappa_output_over_2pi is None:
-                raise ValueError("two_sided resonator requires kappa_input and kappa_output")
-
-        elif self.coupling_geometry == "side_coupled":
-            if self.kappa_input_over_2pi is None or self.kappa_output_over_2pi is None:
-                raise ValueError("side_coupled resonator requires kappa_input and kappa_output")
-
+                raise ValueError(f"{self.coupling_geometry} resonator requires input and output kappas")
         else:
-            raise ValueError(
-                "coupling_geometry must be 'single_sided', 'two_sided', or 'side_coupled'"
-            )
+            raise ValueError("coupling_geometry must be 'single_sided', 'two_sided', or 'side_coupled'")
 
         if self.kappa_input_over_2pi is not None and self.kappa_input_over_2pi <= 0:
-            raise ValueError("kappa_input must be positive")
+            raise ValueError("kappa_input_over_2pi must be positive")
         if self.kappa_output_over_2pi is not None and self.kappa_output_over_2pi <= 0:
-            raise ValueError("kappa_output must be positive")
+            raise ValueError("kappa_output_over_2pi must be positive")
+
 
     @property
     def kappa_external_over_2pi(self) -> float:
-        """Total coupling rate to external measurement ports."""
         if self.coupling_geometry == "single_sided":
-            return self.kappa_input_over_2pi
-
-        if self.coupling_geometry in {"two_sided", "side_coupled"}:
-            return self.kappa_input_over_2pi + self.kappa_output_over_2pi
-
-    @property
-    def kappa_input(self) -> float:
-        """Input coupling rate to the resonator in angular frequency (rad/s)."""
-        return 2 * np.pi * self.kappa_input_over_2pi
-
-    @property
-    def kappa_output(self) -> float:
-        """Output coupling rate from the resonator in angular frequency (rad/s)."""
-        return 2 * np.pi * self.kappa_output_over_2pi
-
-    @property
-    def kappa_internal(self) -> float:
-        """Internal coupling rate to the resonator in angular frequency (rad/s)."""
-        return 2 * np.pi * self.kappa_internal_over_2pi
-
-    @property
-    def kappa_external(self) -> float:
-        """Total coupling rate to external measurement ports in angular frequency (rad/s)."""
-        return 2 * np.pi * self.kappa_external_over_2pi
-
-    @property
-    def kappa(self) -> float:
-        """Total resonator linewidth in angular frequency (rad/s)."""
-        return 2 * np.pi * self.kappa_over_2pi
+            return float(self.kappa_input_over_2pi)
+        return float(self.kappa_input_over_2pi + self.kappa_output_over_2pi)
 
     @property
     def kappa_over_2pi(self) -> float:
         """Total resonator linewidth."""
         return self.kappa_internal_over_2pi + self.kappa_external_over_2pi
+
+    @property
+    def kappa_input(self) -> float:
+        return 2.0 * np.pi * float(self.kappa_input_over_2pi)
+
+    @property
+    def kappa_output(self) -> float | None:
+        if self.kappa_output_over_2pi is None:
+            return None
+        return 2.0 * np.pi * self.kappa_output_over_2pi
+
+    @property
+    def kappa_internal(self) -> float:
+        return 2.0 * np.pi * self.kappa_internal_over_2pi
+
+    @property
+    def kappa_external(self) -> float:
+        return 2.0 * np.pi * self.kappa_external_over_2pi
+
+    @property
+    def kappa(self) -> float:
+        return 2.0 * np.pi * self.kappa_over_2pi
 
     @property
     def quality_factor(self) -> float:
@@ -121,12 +115,12 @@ class ReadoutResonator:
 
     @property
     def ringdown_time(self) -> float:
-        """Energy ringdown time 1 / kappa."""
-        return 1.0 / (2 * np.pi * self.kappa_over_2pi)
+        """Energy ringdown time 1/kappa in seconds."""
+        return 1.0 / self.kappa
 
     @property
     def is_reflection_geometry(self) -> bool:
-        return self.coupling_geometry in {"single_sided"}
+        return self.coupling_geometry == "single_sided"
 
     @property
     def is_transmission_geometry(self) -> bool:
@@ -135,46 +129,52 @@ class ReadoutResonator:
     @classmethod
     def single_sided(
         cls,
-        f_resonator: float,
+        frequency: float,
         kappa_external_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
+        g_over_2pi: float | None = None,
     ) -> "ReadoutResonator":
         return cls(
-            f_resonator=f_resonator,
+            frequency=frequency,
             kappa_internal_over_2pi=kappa_internal_over_2pi,
             coupling_geometry="single_sided",
             kappa_input_over_2pi=kappa_external_over_2pi,
+            g_over_2pi=g_over_2pi,
         )
 
     @classmethod
     def two_sided(
         cls,
-        f_resonator: float,
+        frequency: float,
         kappa_input_over_2pi: float,
         kappa_output_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
+        g_over_2pi: float | None = None,
     ) -> "ReadoutResonator":
         return cls(
-            f_resonator=f_resonator,
+            frequency=frequency,
             kappa_internal_over_2pi=kappa_internal_over_2pi,
             coupling_geometry="two_sided",
             kappa_input_over_2pi=kappa_input_over_2pi,
             kappa_output_over_2pi=kappa_output_over_2pi,
+            g_over_2pi=g_over_2pi,
         )
 
     @classmethod
     def side_coupled(
         cls,
-        f_resonator: float,
+        frequency: float,
         kappa_external_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
+        g_over_2pi: float | None = None,
     ) -> "ReadoutResonator":
         return cls(
-            f_resonator=f_resonator,
+            frequency=frequency,
             kappa_internal_over_2pi=kappa_internal_over_2pi,
             coupling_geometry="side_coupled",
-            kappa_input_over_2pi=kappa_external_over_2pi / 2,
-            kappa_output_over_2pi=kappa_external_over_2pi / 2
+            kappa_input_over_2pi=kappa_external_over_2pi / 2.0,
+            kappa_output_over_2pi=kappa_external_over_2pi / 2.0,
+            g_over_2pi=g_over_2pi,
         )
 
     def detuning(self, f_drive: float) -> float:
@@ -185,11 +185,7 @@ class ReadoutResonator:
         """Resonator-drive detuning in angular frequency (rad/s)."""
         return 2 * np.pi * self.detuning(f_drive)
 
-    def intracavity_field(
-        self,
-        f_drive: float,
-        input_field: complex,
-    ) -> complex:
+    def intracavity_field(self, f_drive: float, input_field: complex) -> complex:
         """Steady-state intracavity field amplitude.
 
         input_field has units sqrt(photons/s).
@@ -202,15 +198,9 @@ class ReadoutResonator:
             a = sqrt(kappa_in) a_in / (kappa/2 + i Delta)
         """
         delta = self.delta(f_drive)
-        return np.sqrt(self.kappa_input) * input_field / (
-            self.kappa / 2.0 + 1j * delta
-        )
+        return np.sqrt(self.kappa_input) * input_field / (self.kappa / 2.0 + 1j * delta)
 
-    def n_photon_from_input_flux(
-        self,
-        f_drive: float,
-        photon_flux: float,
-    ) -> float:
+    def n_photon_from_input_flux(self, f_drive: float, photon_flux: float) -> float:
         """Intracavity photon number from input photon flux.
 
         photon_flux is photons/s.
@@ -223,17 +213,9 @@ class ReadoutResonator:
 
         delta = self.delta(f_drive)
 
-        return (
-            self.kappa_input
-            * photon_flux
-            / (delta**2 + (self.kappa / 2.0) ** 2)
-        )
+        return self.kappa_input * photon_flux / (delta**2 + (self.kappa / 2.0) ** 2)
 
-    def input_flux_for_n_photon(
-        self,
-        f_drive: float,
-        n_photon: float,
-    ) -> float:
+    def input_flux_for_n_photon(self, f_drive: float, n_photon: float) -> float:
         """Required input photon flux for target intracavity photon number.
         
         n_photon is dimensionless.
@@ -246,17 +228,9 @@ class ReadoutResonator:
 
         delta = self.delta(f_drive)
 
-        return (
-            n_photon
-            * (delta**2 + (self.kappa / 2.0) ** 2)
-            / self.kappa_input
-        )
+        return n_photon * (delta**2 + (self.kappa / 2.0) ** 2) / self.kappa_input
 
-    def n_photon_from_input_power(
-        self,
-        f_drive: float,
-        input_power: float,
-    ) -> float:
+    def n_photon_from_input_power(self, f_drive: float, input_power: float) -> float:
         """Intracavity photon number from input power at the chip.
         
         input_power is in Watts.
@@ -266,19 +240,10 @@ class ReadoutResonator:
         """
         if input_power < 0:
             raise ValueError("input_power must be non-negative")
-        h = 6.62607015e-34
-        photon_flux = input_power / (h * f_drive)
+        photon_flux = input_power / (H_PLANCK * f_drive)
+        return self.n_photon_from_input_flux(f_drive=f_drive, photon_flux=photon_flux)
 
-        return self.n_photon_from_input_flux(
-            f_drive=f_drive,
-            photon_flux=photon_flux,
-        )
-
-    def input_power_for_n_photon(
-        self,
-        f_drive: float,
-        n_photon: float,
-    ) -> float:
+    def input_power_for_n_photon(self, f_drive: float, n_photon: float) -> float:
         """Input power at the chip required for target intracavity photon number.
         
         n_photon is dimensionless.
@@ -286,14 +251,8 @@ class ReadoutResonator:
         Equation:
             input_power = photon_flux * h * f_drive
         """
-        h = 6.62607015e-34
-
-        photon_flux = self.input_flux_for_n_photon(
-            f_drive=f_drive,
-            n_photon=n_photon,
-        )
-
-        return photon_flux * h * f_drive    
+        photon_flux = self.input_flux_for_n_photon(f_drive=f_drive, n_photon=n_photon)
+        return photon_flux * H_PLANCK * f_drive    
 
     # def s11(self, f_drive: float) -> complex:
     #     """Reflection coefficient.
