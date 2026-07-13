@@ -157,7 +157,6 @@ class Transmon:
         """Transition frequency f_ij = E_j - E_i in Hz."""
         return self.frequency_spectrum[j] - self.frequency_spectrum[i]
 
-    @property
     def f01(self, method: str = "exact") -> float:
         if method == "exact":
             return self.transition_frequency(0, 1)
@@ -166,7 +165,6 @@ class Transmon:
         else:
             raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
 
-    @property
     def f02(self, method: str = "exact") -> float:
         if method == "exact":
             return self.transition_frequency(0, 2)
@@ -175,7 +173,6 @@ class Transmon:
         else:
             raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
 
-    @property
     def f12(self, method: str = "exact") -> float:
         if method == "exact":
             return self.transition_frequency(1, 2)
@@ -184,7 +181,6 @@ class Transmon:
         else:
             raise ValueError("Invalid method. Choose 'exact' or 'approx'.") 
 
-    @property
     def anharmonicity(self, method: str = "exact") -> float:
         """Return the anharmonicity alpha/2pi = f12 - f01."""
         return self.f12(method=method) - self.f01(method=method)
@@ -215,8 +211,8 @@ class Transmon:
         def residual(log_params: np.ndarray) -> np.ndarray:
             EJ_over_h, EC_over_h = np.exp(log_params)
             t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, n_cutoff=n_cutoff)
-            f01_fit = t.f01
-            f12_fit = t.f12
+            f01_fit = t.f01()
+            f12_fit = t.f12()
             return np.array([
                 (f01_fit - target_f01) / target_f01,
                 (f12_fit - target_f12) / abs(anharmonicity),

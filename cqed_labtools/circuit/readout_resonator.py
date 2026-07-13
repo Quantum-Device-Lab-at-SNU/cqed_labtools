@@ -144,6 +144,7 @@ class ReadoutResonator:
         kappa_external_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
         g_over_2pi: float | None = None,
+        photon_cutoff: int = 10,
     ) -> "ReadoutResonator":
         return cls(
             frequency=frequency,
@@ -161,6 +162,7 @@ class ReadoutResonator:
         kappa_output_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
         g_over_2pi: float | None = None,
+        photon_cutoff: int = 10,
     ) -> "ReadoutResonator":
         return cls(
             frequency=frequency,
@@ -178,6 +180,7 @@ class ReadoutResonator:
         kappa_external_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
         g_over_2pi: float | None = None,
+        photon_cutoff: int = 10,
     ) -> "ReadoutResonator":
         return cls(
             frequency=frequency,
@@ -293,8 +296,8 @@ class ReadoutResonator:
         return 0.5 * (a * np.exp(1j * angle) + a.conj().T * np.exp(-1j * angle))
 
     def hamiltonian(self) -> np.ndarray:
-        """Bare resonator Hamiltonian H/h = f_r a†a in Hz."""
-        return self.frequency * self.number_operator()
+        """Bare resonator Hamiltonian H/h = omega_r a†a."""
+        return 2 * np.pi * self.frequency * self.number_operator()
 
     # def s11(self, f_drive: float) -> complex:
     #     """Reflection coefficient.
