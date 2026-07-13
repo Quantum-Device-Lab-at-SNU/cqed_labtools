@@ -69,18 +69,19 @@ class Transmon:
         """Charge-number operator in the charge basis."""
         return np.diag(self.n_values)
 
+
     def hamiltonian(
-        self, EJ: float, EC: float, ng: float = 0.0, n_cutoff: int = 30
+        self, EJ: float | None = None, EC: float | None = None, ng: float = 0.0, n_cutoff: int = 30
     ) -> np.ndarray:
         """
         Build the charge-basis transmon Hamiltonian.
 
         Parameters
         ----------
-        EJ_over_h : float
-            Josephson energy EJ/h, in Hz.
-        EC_over_h : float
-            Charging energy EC/h, in Hz.
+        EJ: float
+            Josephson energy EJ.
+        EC: float
+            Charging energy EC.
         ng : float
             Offset charge in units of Cooper-pair charge 2e.
         n_cutoff : int
@@ -91,6 +92,15 @@ class Transmon:
         H : ndarray
             Hamiltonian matrix with shape (2*n_cutoff + 1, 2*n_cutoff + 1).
         """
+        if EJ is None:
+            EJ = self.EJ
+        if EC is None:
+            EC = self.EC
+        if ng is None:
+            ng = self.ng
+        if n_cutoff is None:
+            n_cutoff = self.n_cutoff
+
         n_vals = np.arange(-n_cutoff, n_cutoff + 1, dtype=float)
         dim = len(n_vals)
 
@@ -130,10 +140,7 @@ class Transmon:
     @cached_property
     def energy_spectrum(self) -> np.ndarray:
         """transmon bound energy spectrum in frequency, sorted in ascending order."""
-        H = self.transmon_hamiltonian(self.EJ, self.EC, ng=self.ng, n_cutoff=self.n_cutoff)
-        energies = np.linalg.eigvalsh(H)
-        # Bound states only
-        return energies[energies < self.EJ]
+        return self.eigenenergies[self.eigenenergies < self.EJ_over_h]
     
     @property
     def frequency_spectrum(self) -> np.ndarray:

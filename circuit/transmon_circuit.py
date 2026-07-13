@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 import numpy as np
-from control_line import ChargeDriveLine
-from readout_resonator import ReadoutResonator
-from transmon import Transmon
+from circuit.control_line import ChargeDriveLine
+from circuit.readout_resonator import ReadoutResonator
+from circuit.transmon import Transmon
     
 @dataclass
 class TransmonCircuit:
@@ -53,7 +53,7 @@ class TransmonCircuit:
     def _check_dispersive_denominators(self) -> None:
         if np.isclose(self.qr_detuning, 0.0):
             raise ValueError("Qubit and readout resonator are too close to resonance")
-        if np.isclose(self.readout_straddling_detuning, 0.0):
+        if np.isclose(self.qr_straddling_detuning, 0.0):
             raise ValueError("Delta + anharmonicity is too close to zero")
 
     @property
@@ -90,7 +90,7 @@ class TransmonCircuit:
     def f_qubit_dressed(self) -> float:
         """Approximate Lamb-shifted qubit frequency."""
         self._check_dispersive_denominators()
-        return self.f_qubit + self.g_over_2pi**2 / self.qr_detuning 
+        return self.f_qubit_bare + self.g_over_2pi**2 / self.qr_detuning 
 
     @property
     def critical_photon_number(self) -> float:
@@ -133,11 +133,11 @@ class TransmonCircuit:
 
     @property
     def readout_resonator_ground(self) -> ReadoutResonator:
-        return self._readout_with_frequency(self.f_readout_ground)
+        return self._readout_with_frequency(self.f_resonator_ground)
 
     @property
     def readout_resonator_excited(self) -> ReadoutResonator:
-        return self._readout_with_frequency(self.f_readout_excited)
+        return self._readout_with_frequency(self.f_resonator_excited)
 
     def ground_state_field(self, f_drive: float, input_field: complex) -> complex:
         return self.readout_resonator_ground.intracavity_field(f_drive, input_field)

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from constants import E_CHARGE
-from transmon import Transmon
+from circuit.transmon import Transmon
 
 @dataclass(frozen=True)
 class ChargeDriveLine:

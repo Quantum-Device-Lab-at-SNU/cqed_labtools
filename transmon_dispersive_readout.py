@@ -2,6 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
+from circuit.transmon import BareTransmon
+
 @dataclass(frozen=True)
 class TransmonDispersiveReadout:
     """Dispersive readout parameters for a transmon-resonator system.
@@ -19,12 +21,10 @@ class TransmonDispersiveReadout:
     kappa_over_2pi:
         Resonator energy decay rate kappa / 2pi.
     """
-
-    fq_bare: float
+    transmon: BareTransmon
     fr_bare: float
     g_over_2pi: float
     kappa_over_2pi: float
-    anharmonicity: float
 
     def __post_init__(self) -> None:
         if self.fq_bare <= 0:
