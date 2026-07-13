@@ -75,7 +75,7 @@ class TransmonCircuit:
     @property
     def qr_detuning(self) -> float:
         """Qubit-readout detuning Delta/2pi = f_q - f_r in Hz."""
-        return self.f_qubit_bare - self.f_resonator_bare
+        return self.f_qubit_bare(method='approx') - self.f_resonator_bare
 
     @property
     def qr_straddling_detuning(self) -> float:
@@ -149,7 +149,7 @@ class TransmonCircuit:
 
         # We choose the prefactor so that the matrix element between |e,0> and |g,1> is g.
         n01 = self.transmon.n_matrix_element(0, 1)
-        charge_resonator_coupling_prefactor  = self.g / np.abs(n01)
+        charge_resonator_coupling_prefactor  = H_PLANCK * self.g_over_2pi / np.abs(n01)
 
         dim_q = Hq.shape[0]
         dim_r = Hr.shape[0]
