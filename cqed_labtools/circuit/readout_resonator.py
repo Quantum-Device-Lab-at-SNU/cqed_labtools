@@ -1,9 +1,13 @@
+"""Readout resonator models with input-output coupling geometry."""
+
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal
+
 import numpy as np
 
-from cqed_labtools.constants import H_PLANCK
-
+from ..constants import H_PLANCK
 
 CouplingGeometry = Literal["single_sided", "two_sided", "side_coupled"]
 

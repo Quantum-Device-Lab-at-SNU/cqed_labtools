@@ -1,8 +1,13 @@
+"""Control-line models for transmon circuits."""
+
+from __future__ import annotations
+
 from dataclasses import dataclass
+
 import numpy as np
 
-from cqed_labtools.constants import E_CHARGE
-from circuit.transmon import Transmon
+from ..constants import E_CHARGE
+from .transmon import Transmon
 
 @dataclass(frozen=True)
 class ChargeDriveLine:

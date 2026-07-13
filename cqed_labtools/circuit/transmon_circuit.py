@@ -1,12 +1,16 @@
+"""Composite transmon circuit model."""
+
+from __future__ import annotations
+
 from dataclasses import dataclass
-import numpy as np
-from circuit.control_line import ChargeDriveLine
-from circuit.readout_resonator import ReadoutResonator
-from circuit.transmon import Transmon
-from cqed_labtools.constants import H_PLANCK
 from functools import cached_property
+
+import numpy as np
 from scipy.optimize import least_squares
 
+from .control_line import ChargeDriveLine
+from .readout_resonator import ReadoutResonator
+from .transmon import Transmon
     
 @dataclass
 class TransmonCircuit:

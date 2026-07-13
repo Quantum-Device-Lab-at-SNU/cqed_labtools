@@ -1,13 +1,14 @@
-"""Approximate transmon parameter extraction."""
+"""Bare transmon Hamiltonian in the charge basis."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-import numpy as np
-from scipy.optimize import least_squares
 from functools import cached_property
 
-from cqed_labtools.constants import E_CHARGE, H_PLANCK
+import numpy as np
+from scipy.optimize import least_squares
 
+from ..constants import E_CHARGE, H_PLANCK
 
 @dataclass(frozen=True)
 class Transmon:
