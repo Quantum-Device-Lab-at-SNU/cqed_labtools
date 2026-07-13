@@ -6,7 +6,7 @@ import numpy as np
 from scipy.optimize import least_squares
 from functools import cached_property
 
-from constants import E_CHARGE, H_PLANCK
+from cqed_labtools.constants import E_CHARGE, H_PLANCK
 
 
 @dataclass(frozen=True)
@@ -157,35 +157,40 @@ class Transmon:
         return self.frequency_spectrum[j] - self.frequency_spectrum[i]
 
     @property
-    def f01(self) -> float:
-        return self.transition_frequency(0, 1)
+    def f01(self, method: str = "exact") -> float:
+        if method == "exact":
+            return self.transition_frequency(0, 1)
+        elif method == "approx":
+            return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - self.EC_over_h
+        else:
+            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
 
     @property
-    def f02(self) -> float:
-        return self.transition_frequency(0, 2)
+    def f02(self, method: str = "exact") -> float:
+        if method == "exact":
+            return self.transition_frequency(0, 2)
+        elif method == "approx":
+            return self.f01(method="approx") + self.f12(method="approx")
+        else:
+            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
 
     @property
-    def f12(self) -> float:
-        return self.transition_frequency(1, 2)
+    def f12(self, method: str = "exact") -> float:
+        if method == "exact":
+            return self.transition_frequency(1, 2)
+        elif method == "approx":
+            return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - 2 * self.EC_over_h
+        else:
+            raise ValueError("Invalid method. Choose 'exact' or 'approx'.") 
 
     @property
-    def anharmonicity(self) -> float:
+    def anharmonicity(self, method: str = "exact") -> float:
         """Return the anharmonicity alpha/2pi = f12 - f01."""
-        return self.f12 - self.f01
+        return self.f12(method=method) - self.f01(method=method)
 
     @property
     def EJ_over_EC(self) -> float:
         return self.EJ_over_h / self.EC_over_h
-
-    @property
-    def f01_approx(self) -> float:
-        """Approximate f01 transition frequency using the transmon limit formula."""
-        return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - self.EC_over_h
-
-    @property
-    def anharmonicity_approx(self) -> float:
-        """Approximate anharmonicity alpha/2pi using the transmon limit formula."""
-        return -self.EC_over_h
 
     @classmethod
     def from_f01_anharmonicity(

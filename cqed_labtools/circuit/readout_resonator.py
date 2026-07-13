@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 import numpy as np
 
-from constants import H_PLANCK
+from cqed_labtools.constants import H_PLANCK
 
 
 CouplingGeometry = Literal["single_sided", "two_sided", "side_coupled"]
@@ -65,6 +65,10 @@ class ReadoutResonator:
         if self.kappa_output_over_2pi is not None and self.kappa_output_over_2pi <= 0:
             raise ValueError("kappa_output_over_2pi must be positive")
 
+    @property
+    def g(self) -> float:
+        """Qubit-resonator coupling"""
+        return 2.0 * np.pi * self.g_over_2pi
 
     @property
     def kappa_external_over_2pi(self) -> float:
@@ -269,7 +273,6 @@ class ReadoutResonator:
             a[n - 1, n] = np.sqrt(n)
 
         return a
-
 
     def creation_operator(self) -> np.ndarray:
         """Photon creation operator."""

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
 
-from constants import E_CHARGE
+from cqed_labtools.constants import E_CHARGE
 from circuit.transmon import Transmon
 
 @dataclass(frozen=True)
