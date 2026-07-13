@@ -99,19 +99,19 @@ class ReadoutResonator:
     @property
     def quality_factor(self) -> float:
         """Loaded quality factor Q = ω_resonator / kappa = f_resonator / (kappa / 2pi)."""
-        return self.f_resonator / self.kappa_over_2pi
+        return self.frequency / self.kappa_over_2pi
 
     @property
     def internal_quality_factor(self) -> float:
         """Internal quality factor Q_int = ω_resonator / kappa_internal = f_resonator / (kappa_internal / 2pi)."""
         if self.kappa_internal_over_2pi == 0:
             return np.inf
-        return self.f_resonator / self.kappa_internal_over_2pi
+        return self.frequency / self.kappa_internal_over_2pi
 
     @property
     def external_quality_factor(self) -> float:
         """External quality factor Q_ext = ω_resonator / kappa_ext = f_resonator / (kappa_ext / 2pi)."""
-        return self.f_resonator / self.kappa_external_over_2pi
+        return self.frequency / self.kappa_external_over_2pi
 
     @property
     def ringdown_time(self) -> float:
@@ -179,7 +179,7 @@ class ReadoutResonator:
 
     def detuning(self, f_drive: float) -> float:
         """Resonator-drive detuning f_r - f_d."""
-        return self.f_resonator - f_drive
+        return self.frequency - f_drive
 
     def delta(self, f_drive: float) -> float:
         """Resonator-drive detuning in angular frequency (rad/s)."""
