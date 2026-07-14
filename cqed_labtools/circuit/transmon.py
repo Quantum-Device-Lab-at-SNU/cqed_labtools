@@ -1,13 +1,14 @@
-"""Approximate transmon parameter extraction."""
+"""Bare transmon Hamiltonian in the charge basis."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-import numpy as np
-from scipy.optimize import least_squares
 from functools import cached_property
 
-from constants import E_CHARGE, H_PLANCK
+import numpy as np
+from scipy.optimize import least_squares
 
+from ..constants import E_CHARGE, H_PLANCK
 
 @dataclass(frozen=True)
 class Transmon:
@@ -69,18 +70,19 @@ class Transmon:
         """Charge-number operator in the charge basis."""
         return np.diag(self.n_values)
 
+
     def hamiltonian(
-        self, EJ: float, EC: float, ng: float = 0.0, n_cutoff: int = 30
+        self, EJ: float | None = None, EC: float | None = None, ng: float = 0.0, n_cutoff: int = 30
     ) -> np.ndarray:
         """
         Build the charge-basis transmon Hamiltonian.
 
         Parameters
         ----------
-        EJ_over_h : float
-            Josephson energy EJ/h, in Hz.
-        EC_over_h : float
-            Charging energy EC/h, in Hz.
+        EJ: float
+            Josephson energy EJ.
+        EC: float
+            Charging energy EC.
         ng : float
             Offset charge in units of Cooper-pair charge 2e.
         n_cutoff : int
@@ -91,6 +93,15 @@ class Transmon:
         H : ndarray
             Hamiltonian matrix with shape (2*n_cutoff + 1, 2*n_cutoff + 1).
         """
+        if EJ is None:
+            EJ = self.EJ
+        if EC is None:
+            EC = self.EC
+        if ng is None:
+            ng = self.ng
+        if n_cutoff is None:
+            n_cutoff = self.n_cutoff
+
         n_vals = np.arange(-n_cutoff, n_cutoff + 1, dtype=float)
         dim = len(n_vals)
 
@@ -130,10 +141,7 @@ class Transmon:
     @cached_property
     def energy_spectrum(self) -> np.ndarray:
         """transmon bound energy spectrum in frequency, sorted in ascending order."""
-        H = self.transmon_hamiltonian(self.EJ, self.EC, ng=self.ng, n_cutoff=self.n_cutoff)
-        energies = np.linalg.eigvalsh(H)
-        # Bound states only
-        return energies[energies < self.EJ]
+        return self.eigenenergies[self.eigenenergies < self.EJ_over_h]
     
     @property
     def frequency_spectrum(self) -> np.ndarray:
@@ -149,36 +157,37 @@ class Transmon:
         """Transition frequency f_ij = E_j - E_i in Hz."""
         return self.frequency_spectrum[j] - self.frequency_spectrum[i]
 
-    @property
-    def f01(self) -> float:
-        return self.transition_frequency(0, 1)
+    def f01(self, method: str = "exact") -> float:
+        if method == "exact":
+            return self.transition_frequency(0, 1)
+        elif method == "approx":
+            return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - self.EC_over_h
+        else:
+            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
 
-    @property
-    def f02(self) -> float:
-        return self.transition_frequency(0, 2)
+    def f02(self, method: str = "exact") -> float:
+        if method == "exact":
+            return self.transition_frequency(0, 2)
+        elif method == "approx":
+            return self.f01(method="approx") + self.f12(method="approx")
+        else:
+            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
 
-    @property
-    def f12(self) -> float:
-        return self.transition_frequency(1, 2)
+    def f12(self, method: str = "exact") -> float:
+        if method == "exact":
+            return self.transition_frequency(1, 2)
+        elif method == "approx":
+            return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - 2 * self.EC_over_h
+        else:
+            raise ValueError("Invalid method. Choose 'exact' or 'approx'.") 
 
-    @property
-    def anharmonicity(self) -> float:
+    def anharmonicity(self, method: str = "exact") -> float:
         """Return the anharmonicity alpha/2pi = f12 - f01."""
-        return self.f12 - self.f01
+        return self.f12(method=method) - self.f01(method=method)
 
     @property
     def EJ_over_EC(self) -> float:
         return self.EJ_over_h / self.EC_over_h
-
-    @property
-    def f01_approx(self) -> float:
-        """Approximate f01 transition frequency using the transmon limit formula."""
-        return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - self.EC_over_h
-
-    @property
-    def anharmonicity_approx(self) -> float:
-        """Approximate anharmonicity alpha/2pi using the transmon limit formula."""
-        return -self.EC_over_h
 
     @classmethod
     def from_f01_anharmonicity(
@@ -202,8 +211,8 @@ class Transmon:
         def residual(log_params: np.ndarray) -> np.ndarray:
             EJ_over_h, EC_over_h = np.exp(log_params)
             t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, n_cutoff=n_cutoff)
-            f01_fit = t.f01
-            f12_fit = t.f12
+            f01_fit = t.f01()
+            f12_fit = t.f12()
             return np.array([
                 (f01_fit - target_f01) / target_f01,
                 (f12_fit - target_f12) / abs(anharmonicity),

@@ -1,9 +1,13 @@
+"""Readout resonator models with input-output coupling geometry."""
+
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal
+
 import numpy as np
 
-from constants import H_PLANCK
-
+from ..constants import H_PLANCK
 
 CouplingGeometry = Literal["single_sided", "two_sided", "side_coupled"]
 
@@ -29,6 +33,8 @@ class ReadoutResonator:
         Output coupling rate in Hz. Required for two_sided and side_coupled.
     g_over_2pi:
         Optional qubit-resonator coupling strength in Hz.
+    photon_cutoff:
+        Optional photon number cutoff for Fock space operators.
     """
 
     frequency: float
@@ -37,6 +43,7 @@ class ReadoutResonator:
     kappa_input_over_2pi: float | None = None
     kappa_output_over_2pi: float | None = None
     g_over_2pi: float | None = None
+    photon_cutoff: int = 10
 
     def __post_init__(self) -> None:
         if self.frequency <= 0:
@@ -62,6 +69,10 @@ class ReadoutResonator:
         if self.kappa_output_over_2pi is not None and self.kappa_output_over_2pi <= 0:
             raise ValueError("kappa_output_over_2pi must be positive")
 
+    @property
+    def g(self) -> float:
+        """Qubit-resonator coupling"""
+        return 2.0 * np.pi * self.g_over_2pi
 
     @property
     def kappa_external_over_2pi(self) -> float:
@@ -133,6 +144,7 @@ class ReadoutResonator:
         kappa_external_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
         g_over_2pi: float | None = None,
+        photon_cutoff: int = 10,
     ) -> "ReadoutResonator":
         return cls(
             frequency=frequency,
@@ -150,6 +162,7 @@ class ReadoutResonator:
         kappa_output_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
         g_over_2pi: float | None = None,
+        photon_cutoff: int = 10,
     ) -> "ReadoutResonator":
         return cls(
             frequency=frequency,
@@ -167,6 +180,7 @@ class ReadoutResonator:
         kappa_external_over_2pi: float,
         kappa_internal_over_2pi: float = 0.0,
         g_over_2pi: float | None = None,
+        photon_cutoff: int = 10,
     ) -> "ReadoutResonator":
         return cls(
             frequency=frequency,
@@ -253,6 +267,37 @@ class ReadoutResonator:
         """
         photon_flux = self.input_flux_for_n_photon(f_drive=f_drive, n_photon=n_photon)
         return photon_flux * H_PLANCK * f_drive    
+
+    def annihilation_operator(self) -> np.ndarray:
+        """Photon annihilation operator in the resonator Fock basis.
+
+        photon_cutoff means photon states |0>, ..., |photon_cutoff>.
+        """
+        dim = self.photon_cutoff + 1
+        a = np.zeros((dim, dim), dtype=complex)
+
+        for n in range(1, dim):
+            a[n - 1, n] = np.sqrt(n)
+
+        return a
+
+    def creation_operator(self) -> np.ndarray:
+        """Photon creation operator."""
+        return self.annihilation_operator().conj().T
+
+    def number_operator(self) -> np.ndarray:
+        """Photon number operator a†a."""
+        a = self.annihilation_operator()
+        return a.conj().T @ a
+
+    def quadrature_operator(self, angle: float = 0.0) -> np.ndarray:
+        """Resonator field quadrature a + a†."""
+        a = self.annihilation_operator()
+        return 0.5 * (a * np.exp(1j * angle) + a.conj().T * np.exp(-1j * angle))
+
+    def hamiltonian(self) -> np.ndarray:
+        """Bare resonator Hamiltonian H = h f_r a†a."""
+        return H_PLANCK * self.frequency * self.number_operator()
 
     # def s11(self, f_drive: float) -> complex:
     #     """Reflection coefficient.
