@@ -152,6 +152,7 @@ class ReadoutResonator:
             coupling_geometry="single_sided",
             kappa_input_over_2pi=kappa_external_over_2pi,
             g_over_2pi=g_over_2pi,
+            photon_cutoff=photon_cutoff
         )
 
     @classmethod
@@ -171,6 +172,7 @@ class ReadoutResonator:
             kappa_input_over_2pi=kappa_input_over_2pi,
             kappa_output_over_2pi=kappa_output_over_2pi,
             g_over_2pi=g_over_2pi,
+            photon_cutoff=photon_cutoff
         )
 
     @classmethod
@@ -189,6 +191,7 @@ class ReadoutResonator:
             kappa_input_over_2pi=kappa_external_over_2pi / 2.0,
             kappa_output_over_2pi=kappa_external_over_2pi / 2.0,
             g_over_2pi=g_over_2pi,
+            photon_cutoff=photon_cutoff
         )
 
     def detuning(self, f_drive: float) -> float:
@@ -291,14 +294,13 @@ class ReadoutResonator:
         return a.conj().T @ a
 
     def quadrature_operator(self, angle: float = 0.0) -> np.ndarray:
-        """Resonator field quadrature a + a†."""
+        """Resonator field quadrature 0.5 * (a e^{iθ} + a† e^{-iθ})."""
         a = self.annihilation_operator()
         return 0.5 * (a * np.exp(1j * angle) + a.conj().T * np.exp(-1j * angle))
 
     def hamiltonian(self) -> np.ndarray:
-        """Bare resonator Hamiltonian H = h f_r a†a."""
-        return H_PLANCK * self.frequency * self.number_operator()
-
+        """Bare resonator Hamiltonian H/h = f_r a†a in Hz."""
+        return self.frequency * self.number_operator()
     # def s11(self, f_drive: float) -> complex:
     #     """Reflection coefficient.
 
