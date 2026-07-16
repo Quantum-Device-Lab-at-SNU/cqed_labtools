@@ -164,7 +164,7 @@ class Transmon:
         return self.eigensystem[0]
 
     @cached_property
-    def energy_spectrum(self) -> np.ndarray:
+    def bound_spectrum(self) -> np.ndarray:
         """Bound transmon spectrum in Hz."""
         return self.eigenenergies[self.eigenenergies < self.EJ_over_h]
 
@@ -186,7 +186,8 @@ class Transmon:
             Energy levels in Hz, referenced to the ground state.
         """
         if solver == "exact":
-            return self.energy_spectrum
+            spectrum = self.bound_spectrum
+            return spectrum - spectrum[0]
 
         if solver == "approx":
             f01 = np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - self.EC_over_h
@@ -201,7 +202,7 @@ class Transmon:
     @property
     def n_levels(self) -> int:
         """Return the number of bound energy levels."""
-        return len(self.energy_spectrum)
+        return len(self.bound_spectrum)
 
     def transition_frequency(self, i: int, j: int, solver = "approx") -> float:
         """Return the transition frequency between two transmon levels.
@@ -279,26 +280,31 @@ class Transmon:
             raise ValueError("f01 must be positive")
         if anharmonicity >= 0:
             raise ValueError("anharmonicity should be negative for a transmon")
+        if solver not in {"exact", "approx"}:
+            raise ValueError("solver must be 'exact' or 'approx'")
 
         EC0_over_h = -anharmonicity
         EJ0_over_h = (f01 + EC0_over_h) ** 2 / (8.0 * EC0_over_h)
 
-        def residual(log_params: np.ndarray) -> np.ndarray:
-            EJ_over_h, EC_over_h = np.exp(log_params)
-            t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, n_cutoff=n_cutoff)
-            f01_fit = t.f01(solver = solver)
-            anh_fit = t.anharmonicity(solver = solver)
-            return np.array([
-                (f01_fit - f01) / 1e6,
-                (anh_fit - anharmonicity) / 1e6,
-            ])
+        if solver == "approx":
+            return cls(EJ_over_h=EJ0_over_h, EC_over_h=EC0_over_h, ng=ng, n_cutoff=n_cutoff)
+        elif solver == "exact":
+            def residual(log_params: np.ndarray) -> np.ndarray:
+                EJ_over_h, EC_over_h = np.exp(log_params)
+                t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, n_cutoff=n_cutoff)
+                f01_fit = t.f01(solver = solver)
+                anh_fit = t.anharmonicity(solver = solver)
+                return np.array([
+                    (f01_fit - f01) / 1e6,
+                    (anh_fit - anharmonicity) / 1e6,
+                ])
 
-        result = least_squares(
-            residual,
-            x0=np.log([EJ0_over_h, EC0_over_h]),
-            xtol=1e-12,
-            ftol=1e-12,
-            gtol=1e-12,
-        )
-        EJ_fit, EC_fit = np.exp(result.x)
-        return cls(EJ_over_h=EJ_fit, EC_over_h=EC_fit, ng=ng, n_cutoff=n_cutoff)
+            result = least_squares(
+                residual,
+                x0=np.log([EJ0_over_h, EC0_over_h]),
+                xtol=1e-12,
+                ftol=1e-12,
+                gtol=1e-12,
+            )
+            EJ_fit, EC_fit = np.exp(result.x)
+            return cls(EJ_over_h=EJ_fit, EC_over_h=EC_fit, ng=ng, n_cutoff=n_cutoff)
