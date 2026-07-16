@@ -31,39 +31,76 @@ class TransmonCircuit:
             raise ValueError("No charge_drive_line is attached")
         return self.charge_drive_line
 
-    def f_qubit_bare(self, method: str = "exact") -> float:
-        return self.transmon.f01(method = method)
+    def _lamb_shift(self, m: int, solver = "approx"):
+        if solver == "approx":
+            if m == 0:
+                return 0
+            elif m > 0:
+                return m * self.g_over_2pi ** 2 / (
+                    self.qr_detuning(m - 1, representation="bare", solver="approx")
+                )
+            else:
+                raise ValueError("m cannot be negative.")
 
-    def f_qubit_dressed(self, method: str = "exact") -> float:
-        if method == "exact":
-            return self.dressed_transition_frequency(initial = (0, 0), final = (1, 0))
-        elif method == "approx":
-            return self.f_qubit_bare + self.g_over_2pi ** 2 / self.qr_detuning
+    def f_qubit(
+        self, m: int = 0, representation: str = "bare", solver: str = "approx"
+    ) -> float:
+        """
+        Dressed transition frequency between |m> and |m+1> levels of transmon
+        """
+        if representation == "bare":
+            return self.transmon.transition_frequency(m, m + 1, solver = solver)
+        elif representation == "dressed":
+            if solver == "exact":
+                return self.dressed_transition_frequency(initial = (m, 0), final = (m + 1, 0))
+            elif solver == "approx":
+                return (
+                    self.f_qubit(m, representation = "bare", solver = "approx")
+                    + self._lamb_shift(m + 1, solver="approx") - self._lamb_shift(m, solver="approx")
+                )
+            else:
+                raise ValueError("Invalid solver. Choose 'exact' or 'approx'.")
         else:
-            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
+            raise ValueError("Invalid representation. Choose 'bare' or 'dressed'.")
 
-    def anharmonicity_bare(self, method: str = "exact") -> float:
-        return self.transmon.anharmonicity(method = method)
-    
-    def anharmonicity_dressed(self, method: str = "exact") -> float:
-        if method == "exact":
-            f01 = self.dressed_transition_frequency(initial=(0, 0), final=(1, 0))
-            f12 = self.dressed_transition_frequency(initial=(1, 0), final=(2, 0))
-            return f12 - f01
-
-    @property
-    def f_resonator_bare(self) -> float:
-        return self._require_readout().frequency
-
-    def f_resonator_dressed(self, method: str = "exact") -> float:
-        """Reference dressed readout frequency before state-dependent shift +/- chi."""
-        if method == "exact":
-            pass
-        elif method == "approx":
-            self._check_dispersive_denominators()
-            return self.f_resonator_bare - self.g_over_2pi**2 / self.qr_straddling_detuning
+    def anharmonicity(self, representation: str = "bare", solver: str = "approx") -> float:
+        if representation == "bare":
+            return self.transmon.anharmonicity(solver = solver)
+        elif representation == "dressed":
+            if solver == "exact":
+                f01 = self.dressed_transition_frequency(initial=(0, 0), final=(1, 0))
+                f12 = self.dressed_transition_frequency(initial=(1, 0), final=(2, 0))
+                return f12 - f01
+            elif solver == "approx":
+                f01 = self.f_qubit(0, representation="dressed", solver="approx")
+                f12 = self.f_qubit(1, representation="dressed", solver="approx")
+                return f12 - f01
+            else:
+                raise ValueError("Invalid solver. Choose 'exact' or 'approx'.")
         else:
-            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
+            raise ValueError("Invalid representation. Choose 'bare' or 'dressed'.")
+
+    def f_resonator(self, representation = "bare", solver = "approx"):
+        """
+        Bare: Readout resonator frequency in the absence of qubit (after punchout)
+        Dressed: Reference readout resonator frequency before state-dependent shift +/- chi."""
+        if representation == "bare":
+            return self._require_readout().frequency
+        elif representation == "dressed":
+            if solver == "exact":
+                return 0.5 * (
+                    self.f_resonator_for_transmon_level(0)
+                    + self.f_resonator_for_transmon_level(1)
+                )
+            elif solver == "approx":
+                return (
+                    self.f_resonator(representation="bare", solver="approx")
+                    - self.g_over_2pi**2 / self.qr_detuning(1, representation="bare", solver="approx")
+                )
+            else:
+                raise ValueError("Invalid solver. Choose 'exact' or 'approx'.")
+        else:
+            raise ValueError("Invalid representation. Choose 'bare' or 'dressed'.")
 
     @property
     def g_over_2pi(self) -> float:
@@ -72,59 +109,56 @@ class TransmonCircuit:
             raise ValueError("readout_resonator.g_over_2pi is required for dispersive properties")
         return resonator.g_over_2pi
 
-    @property
-    def qr_detuning(self) -> float:
-        """Qubit-readout detuning Delta/2pi = f_q - f_r in Hz."""
-        return self.f_qubit_bare(method='approx') - self.f_resonator_bare
+    def qr_detuning(self, m: int = 0, representation = "bare", solver = "approx") -> float:
+        """Qubit-readout detuning between
+        m, m+1 transition frequency of transmon and resonator frequency.
+        
+        m = 0: f01 - fr -> known as the detuning
+        m = 1: f12 - fr -> known as the straddling detuning
+        """
+        return (
+            self.f_qubit(m = m, representation=representation, solver = solver)
+            - self.f_resonator(representation=representation, solver = solver)
+        )
 
-    @property
-    def qr_straddling_detuning(self) -> float:
-        return self.qr_detuning + self.anharmonicity_bare(method = 'approx')
-
-    def _check_dispersive_denominators(self) -> None:
-        if np.isclose(self.qr_detuning, 0.0):
-            raise ValueError("Qubit and readout resonator are too close to resonance")
-        if np.isclose(self.qr_straddling_detuning, 0.0):
-            raise ValueError("Delta + anharmonicity is too close to zero")
-
-    def f_resonator_for_transmon_level(self, m: int):
+    def f_resonator_for_transmon_level(self, m: int, solver = "approx"):
         """Resonator frequency associated in transmon level `m`."""
-        return self.dressed_transition_frequency(initial=(m, 0), final=(m, 1))
-
-    def chi_readout_over_2pi(self, method: str = "exact") -> float:
-        """Transmon dispersive shift chi/2pi = (f_r,|e> - f_r,|g>) / 2."""
-        if method == "exact":
+        if solver == "approx": # "blais formula"
             return (
-                self.f_resonator_for_transmon_level(1)
-                - self.f_resonator_for_transmon_level(0)
-             ) / 2
-        elif method == "approx":
-            self._check_dispersive_denominators()
-            return (
-                self.g_over_2pi**2 * self.anharmonicity
-                / (self.qr_detuning * self.qr_straddling_detuning)
+                self.f_resonator(representation="bare", solver="approx")
+                + self._lamb_shift(m, solver="approx") - self._lamb_shift(m + 1, solver="approx")
             )
-        else:
-            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
+        elif solver == "exact":
+            return self.dressed_transition_frequency(initial=(m, 0), final=(m, 1))
+
+    def dispersive_shift(self, m: int = 0, solver: str = "approx") -> float:
+        """Transmon dispersive shift chi/2pi = (f_r,|e> - f_r,|g>) / 2."""
+        return (
+            self.f_resonator_for_transmon_level(1, solver=solver)
+            - self.f_resonator_for_transmon_level(0, solver=solver)
+        ) / 2
 
     @property
     def critical_photon_number(self) -> float:
-        return self.qr_detuning**2 / (4.0 * self.g_over_2pi**2)
+        return self.qr_detuning(representation="bare", solver="exact")**2 / (4.0 * self.g_over_2pi**2)
 
     @property
     def purcell_decay_rate_over_2pi(self) -> float:
         """Purcell decay rate Gamma_P/2pi in Hz."""
         readout = self._require_readout()
-        return (self.g_over_2pi / self.qr_detuning) ** 2 * readout.kappa_over_2pi
+        return (
+            self.g_over_2pi
+            / self.qr_detuning(0, representation="bare", solver="exact")
+        ) ** 2 * readout.kappa_over_2pi
 
     @property
     def purcell_decay_rate(self) -> float:
-        """Purcell decay rate in rad/s."""
+        """Purcell decay rate in angular frequency [rad/s]."""
         return 2.0 * np.pi * self.purcell_decay_rate_over_2pi
 
     @property
     def purcell_limited_t1(self) -> float:
-        """Purcell-limited T1 in seconds."""
+        """Purcell-limited T1 in time units."""
         return 1.0 / self.purcell_decay_rate
 
     @property
@@ -136,7 +170,7 @@ class TransmonCircuit:
     def full_hamiltonian(self) -> np.ndarray:
         """Full transmon-readout Hamiltonian in charge x photon basis.
 
-        Returns H/h in Hz.
+        Returns H in energy units.
         """
         readout = self._require_readout()
 
@@ -149,7 +183,7 @@ class TransmonCircuit:
 
         # We choose the prefactor so that the matrix element between |e,0> and |g,1> is g.
         n01 = self.transmon.n_matrix_element(0, 1)
-        charge_resonator_coupling_prefactor  = H_PLANCK * self.g_over_2pi / np.abs(n01)
+        charge_resonator_coupling_prefactor  = self.g_over_2pi / np.abs(n01)
 
         dim_q = Hq.shape[0]
         dim_r = Hr.shape[0]
@@ -174,7 +208,7 @@ class TransmonCircuit:
         H = self.full_hamiltonian()
         return np.linalg.eigh(H)
 
-    def bare_product_state(self, transmon_level: int, photon_number: int) -> np.ndarray:
+    def _bare_product_state(self, transmon_level: int, photon_number: int) -> np.ndarray:
         """Bare product state |transmon_level, photon_number>."""
         readout = self._require_readout()
 
@@ -188,36 +222,20 @@ class TransmonCircuit:
     def dressed_energy(self, transmon_level: int, photon_number: int) -> float:
         """Find dressed energy adiabatically connected to |level, photon_number>."""
         evals, evecs = self.dressed_eigensystem
-        target = self.bare_product_state(transmon_level=transmon_level, photon_number=photon_number)
+        target = self._bare_product_state(
+            transmon_level=transmon_level, photon_number=photon_number
+        )
 
         overlaps = np.abs(evecs.conj().T @ target) ** 2
         idx = int(np.argmax(overlaps))
 
         return float(evals[idx])
 
-    def dressed_transition_energy(self, initial: tuple[int, int], final: tuple[int, int]) -> float:
-        """Dressed transition energy between two dressed product-like states."""
-        Ei = self.dressed_energy(*initial)
-        Ef = self.dressed_energy(*final)
-        return Ef - Ei
-
     def dressed_transition_frequency(self, initial: tuple[int, int], final: tuple[int, int]) -> float:
-        """Dressed transition frequency between two dressed product-like states."""
-        return self.dressed_transition_energy(initial=initial, final=final) / H_PLANCK
-
-    @property
-    def dispersive_validity_ratio(self) -> float:
-        """ Dispersive validity ratio |g/Delta|.
-        Should be much less than 1 for the dispersive approximation to hold.
-        """
-        return abs(self.g_over_2pi / self.qr_detuning)
-
-    @property
-    def straddling_validity_ratio(self) -> float:
-        """ Straddling validity ratio |g/(Delta + alpha)|.
-        Should be much less than 1 for the dispersive approximation to hold.
-        """
-        return abs(self.g_over_2pi / self.qr_straddling_detuning)
+        """Dressed transition energy between two dressed product-like states."""
+        fi = self.dressed_energy(*initial)
+        ff = self.dressed_energy(*final)
+        return ff - fi
 
     def _readout_with_frequency(self, frequency: float) -> ReadoutResonator:
         r = self._require_readout()
@@ -230,15 +248,9 @@ class TransmonCircuit:
             g_over_2pi=r.g_over_2pi,
         )
 
-    @property
-    def readout_resonator_ground(self) -> ReadoutResonator:
-        """Resonator conditioned on transmon |g>."""
-        return self._readout_with_frequency(self.f_resonator_ground)
-
-    @property
-    def readout_resonator_excited(self) -> ReadoutResonator:
-        """Resonator conditioned on transmon |e>."""
-        return self._readout_with_frequency(self.f_resonator_excited)
+    def readout_resonator_for_transmon_level(self, m: int, solver: str = "approx") -> ReadoutResonator:
+        """Resonator conditioned on transmon transmon in level m."""
+        return self._readout_with_frequency(self.f_resonator_for_transmon_level(m, solver = solver))
 
     # def ground_state_field(self, f_drive: float, input_field: complex) -> complex:
     #     return self.readout_resonator_ground.intracavity_field(f_drive, input_field)
@@ -252,17 +264,17 @@ class TransmonCircuit:
     # def measurement_response_separation_abs(self, f_drive: float, input_field: complex) -> float:
     #     return abs(self.measurement_response_separation(f_drive, input_field))
 
-    def ground_state_n_photon_from_input_power(self, f_drive: float, input_power: float) -> float:
-        return self.readout_resonator_ground.n_photon_from_input_power(f_drive, input_power)
+    def n_photon_from_input_power(
+        self, m: int, f_drive: float, input_power: float, solver = "approx"
+    ) -> float:
+        res = self.readout_resonator_for_transmon_level(m, solver = solver)
+        return res.n_photon_from_input_power(f_drive, input_power)
 
-    def excited_state_n_photon_from_input_power(self, f_drive: float, input_power: float) -> float:
-        return self.readout_resonator_excited.n_photon_from_input_power(f_drive, input_power)
-
-    def input_power_for_ground_state_n_photon(self, f_drive: float, n_photon: float) -> float:
-        return self.readout_resonator_ground.input_power_for_n_photon(f_drive, n_photon)
-
-    def input_power_for_excited_state_n_photon(self, f_drive: float, n_photon: float) -> float:
-        return self.readout_resonator_excited.input_power_for_n_photon(f_drive, n_photon)
+    def input_power_for_n_photon(
+        self, m: int, f_drive: float, n_photon: float, solver = "approx"
+    ) -> float:
+        res = self.readout_resonator_for_transmon_level(m, solver = solver)
+        return res.input_power_for_n_photon(f_drive, n_photon)
 
     def rabi_frequency_from_charge_voltage(self, voltage: float, voltage_is_at_chip: bool = True) -> float:
         """Estimate f_R in Hz from the attached charge-drive line."""
@@ -286,7 +298,6 @@ class TransmonCircuit:
             rms_voltage=rms_voltage,
         )
 
-
     @classmethod
     def from_measured_dressed_with_punchout_shift(
         cls,
@@ -294,17 +305,19 @@ class TransmonCircuit:
         f_resonator_ground: float,
         anharmonicity_dressed: float,
         punchout_shift: float,
-        kappa_external_over_2pi: float,
-        kappa_internal_over_2pi: float = 0.0,
+        kappa_internal_over_2pi: float,
+        kappa_input_over_2pi: float | None,
+        kappa_output_over_2pi: float,
         coupling_geometry: str = "single_sided",
         ng: float = 0.0,
         n_cutoff: int = 30,
         photon_cutoff: int = 5,
         charge_drive_line: ChargeDriveLine | None = None,
+        solver = "approx"
     ) -> "TransmonCircuit":
         """Construct from dressed qubit/readout data and punchout shift.
 
-        punchout_shift = f_resonator_bare - f_resonator_ground.
+        punchout_shift = f_resonator_bare - f_resonator_ground ≈ (g/2pi)^2 / (f_q - f_r).
         """
 
         if f_qubit_dressed <= 0:
@@ -316,14 +329,12 @@ class TransmonCircuit:
         if punchout_shift == 0:
             raise ValueError("punchout_shift must be nonzero")
 
-        alpha0 = anharmonicity_dressed
-
         # By definition of punchout shift.
-        f_res_bare_fixed = f_resonator_ground + punchout_shift
+        f_resonator_bare = f_resonator_ground + punchout_shift
 
         # Perturbative initial guess.
         f_qubit_bare0 = f_qubit_dressed - punchout_shift
-        detuning0 = f_qubit_bare0 - f_res_bare_fixed
+        detuning0 = f_qubit_bare0 - f_resonator_bare
         g0_squared = punchout_shift * detuning0
 
         if g0_squared <= 0:
@@ -335,15 +346,39 @@ class TransmonCircuit:
 
         g0 = np.sqrt(g0_squared)
 
+        # construct a quadratic equation to find bare anharmonicity from the derived parameters.
+        anharmonicity0_roots = np.roots([
+            1, detuning0 - anharmonicity_dressed - punchout_shift,
+            - detuning0 * (anharmonicity_dressed + punchout_shift)]
+        )
+        anharmonicity0 = anharmonicity0_roots[np.argmin(np.abs(anharmonicity0_roots - anharmonicity_dressed))]
+
+        if solver == "approx":
+            transmon = Transmon.from_f01_anharmonicity(f01=f_qubit_bare0, anharmonicity=anharmonicity0, solver="approx")
+            readout_resonator = ReadoutResonator(
+                frequency=f_resonator_bare, 
+                kappa_internal_over_2pi=kappa_internal_over_2pi,
+                kappa_input_over_2pi=kappa_input_over_2pi,
+                coupling_geometry=coupling_geometry,
+                kappa_output_over_2pi=kappa_output_over_2pi, g_over_2pi=g0,
+                photon_cutoff=photon_cutoff
+            )
+            return cls(
+                transmon=transmon, readout_resonator=readout_resonator, 
+                charge_drive_line=charge_drive_line
+            )
+
         target = np.array([
             f_qubit_dressed,
             f_resonator_ground,
+            f_resonator_bare,
             anharmonicity_dressed,
         ])
 
         scale = np.array([
-            1e6,
-            1e6,
+            1e7,
+            1e7,
+            1e7,
             1e6,
         ])
 
@@ -386,7 +421,7 @@ class TransmonCircuit:
             )
 
             resonator = make_resonator(
-                f_resonator=f_res_bare_fixed,
+                f_resonator=f_resonator_bare,
                 g_over_2pi=g_over_2pi,
             )
 
@@ -399,7 +434,7 @@ class TransmonCircuit:
             model = np.array([
                 circuit.f_qubit_dressed(method="exact"),
                 circuit.f_resonator_for_transmon_level(0),
-                circuit.anharmonicity_dressed(method="exact"),
+                circuit.anharmonicity(representation="dressed", solver="exact"),
             ])
 
             return (model - target) / scale
@@ -570,10 +605,10 @@ class TransmonCircuit:
             )
 
             model = np.array([
-                circuit.f_qubit_dressed(method="exact"),
-                circuit.f_resonator_for_transmon_level(0),
-                circuit.anharmonicity_dressed(method="exact"),
-                circuit.chi_readout_over_2pi(method="exact"),
+                circuit.f_qubit(0, representation="dressed", solver="exact"),
+                circuit.f_resonator_for_transmon_level(0, solver="exact"),
+                circuit.anharmonicity(representation="dressed", solver="exact"),
+                circuit.dispersive_shift(solver="exact")
             ])
 
             return (model - target) / scale
