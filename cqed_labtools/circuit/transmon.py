@@ -245,12 +245,13 @@ class Transmon:
         anharmonicity: float,
         ng: float = 0.0,
         n_cutoff: int = 30,
+        solver: str = "approx"
     ) -> "Transmon":
         """Construct a transmon from measured transition frequency.
 
         The method numerically determines EJ/h and EC/h such that the
-        numerically diagonalized transmon Hamiltonian reproduces the
-        specified f01 transition frequency and anharmonicity.
+        computed spectrum (specified by solver) reproduces the specified
+        f01 transition frequency and anharmonicity.
 
         Parameters
         ----------
@@ -262,6 +263,11 @@ class Transmon:
             Offset charge.
         n_cutoff : int, optional
             Charge basis cutoff.
+        solver : {"exact", "approx"}, optional
+            Method used to compute the spectrum.
+
+            - "exact": numerical diagonalization of the charge-basis Hamiltonian.
+            - "approx": transmon approximation
 
         Returns
         -------
@@ -274,19 +280,17 @@ class Transmon:
         if anharmonicity >= 0:
             raise ValueError("anharmonicity should be negative for a transmon")
 
-        target_f01 = f01
-        target_anh = anharmonicity
         EC0_over_h = -anharmonicity
         EJ0_over_h = (f01 + EC0_over_h) ** 2 / (8.0 * EC0_over_h)
 
         def residual(log_params: np.ndarray) -> np.ndarray:
             EJ_over_h, EC_over_h = np.exp(log_params)
             t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, n_cutoff=n_cutoff)
-            f01_fit = t.f01(solver = "exact")
-            anh_fit = t.anharmonicity(solver = "exact")
+            f01_fit = t.f01(solver = solver)
+            anh_fit = t.anharmonicity(solver = solver)
             return np.array([
-                (f01_fit - target_f01) / 1e6,
-                (anh_fit - target_anh) / 1e6,
+                (f01_fit - f01) / 1e6,
+                (anh_fit - anharmonicity) / 1e6,
             ])
 
         result = least_squares(
