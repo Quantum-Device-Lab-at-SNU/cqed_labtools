@@ -12,7 +12,7 @@ from ..constants import E_CHARGE, H_PLANCK
 
 @dataclass(frozen=True)
 class Transmon:
-    """Bare transmon Hamiltonian in the charge basis.
+    """Bare transmon system, with Hamiltonian constructed in the charge basis.
 
     Parameters
     ----------
@@ -42,12 +42,12 @@ class Transmon:
 
     @property
     def EJ(self) -> float:
-        """Return the Josephson energy EJ in Watts."""
+        """Return the Josephson energy EJ in Joules."""
         return self.EJ_over_h * H_PLANCK  # Planck's constant in J*s
 
     @property
     def EC(self) -> float:
-        """Return the charging energy EC in Watts."""
+        """Return the charging energy EC in Joules."""
         return self.EC_over_h * H_PLANCK  # Planck's constant in J*s
 
     @property
@@ -72,31 +72,41 @@ class Transmon:
 
 
     def hamiltonian(
-        self, EJ: float | None = None, EC: float | None = None, ng: float = 0.0, n_cutoff: int = 30
+        self,
+        EJ_over_h: float | None = None,
+        EC_over_h: float | None = None,
+        ng: float | None = None,
+        n_cutoff: int | None = None,
     ) -> np.ndarray:
-        """
-        Build the charge-basis transmon Hamiltonian.
+        """Construct the transmon Hamiltonian in the charge basis.
+
+        The Hamiltonian is returned as H/h, so all matrix elements are expressed
+        in frequency units (Hz).
 
         Parameters
         ----------
-        EJ: float
-            Josephson energy EJ.
-        EC: float
-            Charging energy EC.
-        ng : float
-            Offset charge in units of Cooper-pair charge 2e.
-        n_cutoff : int
-            Charge states from -n_cutoff to +n_cutoff are included.
+        EJ_over_h : float, optional
+            Josephson energy divided by Planck's constant, in Hz.
+            Defaults to the value stored in the object.
+        EC_over_h : float, optional
+            Charging energy divided by Planck's constant, in Hz.
+            Defaults to the value stored in the object.
+        ng : float, optional
+            Offset charge in units of Cooper-pair charge (2e).
+            Defaults to the value stored in the object.
+        n_cutoff : int, optional
+            Charge basis extends from -n_cutoff to +n_cutoff.
+            Defaults to the value stored in the object.
 
         Returns
         -------
-        H : ndarray
-            Hamiltonian matrix with shape (2*n_cutoff + 1, 2*n_cutoff + 1).
+        ndarray
+            Hamiltonian matrix H/h in the charge basis.
         """
-        if EJ is None:
-            EJ = self.EJ
-        if EC is None:
-            EC = self.EC
+        if EJ_over_h is None:
+            EJ_over_h = self.EJ_over_h
+        if EC_over_h is None:
+            EC_over_h = self.EC_over_h
         if ng is None:
             ng = self.ng
         if n_cutoff is None:
@@ -106,16 +116,37 @@ class Transmon:
         dim = len(n_vals)
 
         H = np.zeros((dim, dim), dtype=float)
+        np.fill_diagonal(H, 4.0 * EC_over_h * (n_vals - ng) ** 2)
 
-        # Charging term: 4 EC (n - ng)^2
-        np.fill_diagonal(H, 4.0 * EC * (n_vals - ng) ** 2)
-
-        # Josephson term: -EJ/2 coupling between neighboring charge states
-        offdiag = -0.5 * EJ * np.ones(dim - 1)
+        offdiag = -0.5 * EJ_over_h * np.ones(dim - 1)
         H += np.diag(offdiag, k=1)
         H += np.diag(offdiag, k=-1)
 
         return H
+
+    def n_matrix_element(self, i: int, j: int) -> complex:
+        """Return the charge-operator matrix element.
+
+        Computes
+
+            <i|n|j>
+
+        where |i> and |j> are transmon eigenstates.
+
+        Parameters
+        ----------
+        i, j : int
+            Transmon eigenstate indices.
+
+        Returns
+        -------
+        complex
+            Charge matrix element.
+        """
+
+        vi = self.eigenstates[:, i]
+        vj = self.eigenstates[:, j]
+        return np.vdot(vi, self.n_operator @ vj)
 
     @cached_property
     def eigensystem(self) -> tuple[np.ndarray, np.ndarray]:
@@ -123,67 +154,85 @@ class Transmon:
         return np.linalg.eigh(self.hamiltonian())
 
     @cached_property
-    def eigenenergies(self) -> np.ndarray:
-        """All eigenvalues in Hz."""
-        return self.eigensystem[0]
-
-    @cached_property
     def eigenstates(self) -> np.ndarray:
         """Eigenvectors as columns in the charge basis."""
         return self.eigensystem[1]
 
-    def n_matrix_element(self, i: int, j: int) -> complex:
-        """Charge operator matrix element <i|n|j>."""
-        vi = self.eigenstates[:, i]
-        vj = self.eigenstates[:, j]
-        return np.vdot(vi, self.n_operator @ vj)
+    @cached_property
+    def eigenenergies(self) -> np.ndarray:
+        """All eigenvalues of H/h in Hz."""
+        return self.eigensystem[0]
 
     @cached_property
     def energy_spectrum(self) -> np.ndarray:
-        """transmon bound energy spectrum in frequency, sorted in ascending order."""
+        """Bound transmon spectrum in Hz."""
         return self.eigenenergies[self.eigenenergies < self.EJ_over_h]
-    
-    @property
-    def frequency_spectrum(self) -> np.ndarray:
-        """Return the bound energy spectrum in frequency, sorted in ascending order."""
-        return self.energy_spectrum / H_PLANCK  # Convert energy to frequency (Hz)
+
+    def frequency_spectrum(self, solver: str = "exact") -> np.ndarray:
+        """Return the transmon energy spectrum.
+
+        Parameters
+        ----------
+        solver : {"exact", "approx"}, optional
+            Method used to compute the spectrum.
+
+            - "exact": numerical diagonalization of the charge-basis Hamiltonian.
+            - "approx": transmon approximation
+            E_m/h ≈ m f01 - EC/h · m(m-1)/2.
+
+        Returns
+        -------
+        ndarray
+            Energy levels in Hz, referenced to the ground state.
+        """
+        if solver == "exact":
+            return self.energy_spectrum
+
+        if solver == "approx":
+            f01 = np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - self.EC_over_h
+            alpha = -self.EC_over_h
+            return np.array([
+                m * f01 + 0.5 * alpha * m * (m - 1)
+                for m in range(self.n_levels)
+            ])
+
+        raise ValueError("Invalid solver. Choose 'exact' or 'approx'.")
 
     @property
     def n_levels(self) -> int:
         """Return the number of bound energy levels."""
         return len(self.energy_spectrum)
 
-    def transition_frequency(self, i: int, j: int) -> float:
-        """Transition frequency f_ij = E_j - E_i in Hz."""
-        return self.frequency_spectrum[j] - self.frequency_spectrum[i]
+    def transition_frequency(self, i: int, j: int, solver = "approx") -> float:
+        """Return the transition frequency between two transmon levels.
 
-    def f01(self, method: str = "exact") -> float:
-        if method == "exact":
-            return self.transition_frequency(0, 1)
-        elif method == "approx":
-            return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - self.EC_over_h
-        else:
-            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
+        Parameters
+        ----------
+        i, j : int
+            Initial and final transmon levels.
+        solver : {"exact", "approx"}, optional
+            Method used to compute the energy spectrum.
 
-    def f02(self, method: str = "exact") -> float:
-        if method == "exact":
-            return self.transition_frequency(0, 2)
-        elif method == "approx":
-            return self.f01(method="approx") + self.f12(method="approx")
-        else:
-            raise ValueError("Invalid method. Choose 'exact' or 'approx'.")
+        Returns
+        -------
+        float
+            Transition frequency f_ij in Hz.
+        """
+        freqs = self.frequency_spectrum(solver = solver)
+        return freqs[j] - freqs[i]
 
-    def f12(self, method: str = "exact") -> float:
-        if method == "exact":
-            return self.transition_frequency(1, 2)
-        elif method == "approx":
-            return np.sqrt(8 * self.EJ_over_h * self.EC_over_h) - 2 * self.EC_over_h
-        else:
-            raise ValueError("Invalid method. Choose 'exact' or 'approx'.") 
+    def f01(self, solver: str = "exact") -> float:
+        return self.transition_frequency(0, 1, solver = solver)
 
-    def anharmonicity(self, method: str = "exact") -> float:
+    def f02(self, solver: str = "exact") -> float:
+        return self.transition_frequency(0, 2, solver = solver)
+
+    def f12(self, solver: str = "exact") -> float:
+        return self.transition_frequency(1, 2, solver = solver)
+
+    def anharmonicity(self, solver: str = "exact") -> float:
         """Return the anharmonicity alpha/2pi = f12 - f01."""
-        return self.f12(method=method) - self.f01(method=method)
+        return self.f12(solver=solver) - self.f01(solver=solver)
 
     @property
     def EJ_over_EC(self) -> float:
@@ -197,25 +246,47 @@ class Transmon:
         ng: float = 0.0,
         n_cutoff: int = 30,
     ) -> "Transmon":
-        """Numerically infer EJ/h and EC/h from f01 and anharmonicity."""
+        """Construct a transmon from measured transition frequency.
+
+        The method numerically determines EJ/h and EC/h such that the
+        numerically diagonalized transmon Hamiltonian reproduces the
+        specified f01 transition frequency and anharmonicity.
+
+        Parameters
+        ----------
+        f01 : float
+            Target qubit transition frequency in Hz.
+        anharmonicity : float
+            Target anharmonicity f12 - f01 in Hz.
+        ng : float, optional
+            Offset charge.
+        n_cutoff : int, optional
+            Charge basis cutoff.
+
+        Returns
+        -------
+        Transmon
+            Bare transmon whose numerically computed spectrum matches the
+            requested transition frequency and anharmonicity.
+        """
         if f01 <= 0:
             raise ValueError("f01 must be positive")
         if anharmonicity >= 0:
             raise ValueError("anharmonicity should be negative for a transmon")
 
         target_f01 = f01
-        target_f12 = f01 + anharmonicity
+        target_anh = anharmonicity
         EC0_over_h = -anharmonicity
         EJ0_over_h = (f01 + EC0_over_h) ** 2 / (8.0 * EC0_over_h)
 
         def residual(log_params: np.ndarray) -> np.ndarray:
             EJ_over_h, EC_over_h = np.exp(log_params)
             t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, n_cutoff=n_cutoff)
-            f01_fit = t.f01()
-            f12_fit = t.f12()
+            f01_fit = t.f01(solver = "exact")
+            anh_fit = t.anharmonicity(solver = "exact")
             return np.array([
-                (f01_fit - target_f01) / target_f01,
-                (f12_fit - target_f12) / abs(anharmonicity),
+                (f01_fit - target_f01) / 1e6,
+                (anh_fit - target_anh) / 1e6,
             ])
 
         result = least_squares(
