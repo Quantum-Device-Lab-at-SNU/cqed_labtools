@@ -343,7 +343,7 @@ class TransmonCircuit:
         kappa_input_over_2pi: float | None,
         kappa_internal_over_2pi: float = 0.0,
         kappa_output_over_2pi: float | None = None,
-        coupling_geometry: str = "single_sided",
+        coupling_geometry: str = "single_sided", # TODO: want to avoid specifying coupling geometry in these constructurs; rather they have to be added by making ReadoutResonator unfrozen.
         ng: float = 0.0,
         n_cutoff: int = 30,
         photon_cutoff: int = 5,
