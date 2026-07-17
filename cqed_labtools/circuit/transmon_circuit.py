@@ -31,7 +31,10 @@ class TransmonCircuit:
             raise ValueError("No charge_drive_line is attached")
         return self.charge_drive_line
 
-    def _lamb_shift(self, m: int, solver = "approx"):
+    def lamb_shift(self, m: int, solver = "approx"):
+        """
+        The Lamb shift of transmon level |m> due to coupling with resonator.
+        """
         if solver == "approx":
             if m == 0:
                 return 0
@@ -41,9 +44,11 @@ class TransmonCircuit:
                 )
             else:
                 raise ValueError("m cannot be negative.")
+        if solver == "exact": # TODO:
+            pass
 
     def f_qubit(
-        self, m: int = 0, representation: str = "bare", solver: str = "approx"
+        self, m: int = 0, representation: str = "dressed", solver: str = "exact"
     ) -> float:
         """
         Dressed transition frequency between |m> and |m+1> levels of transmon
@@ -56,14 +61,14 @@ class TransmonCircuit:
             elif solver == "approx":
                 return (
                     self.f_qubit(m, representation = "bare", solver = "approx")
-                    + self._lamb_shift(m + 1, solver="approx") - self._lamb_shift(m, solver="approx")
+                    + self.lamb_shift(m + 1, solver="approx") - self.lamb_shift(m, solver="approx")
                 )
             else:
                 raise ValueError("Invalid solver. Choose 'exact' or 'approx'.")
         else:
             raise ValueError("Invalid representation. Choose 'bare' or 'dressed'.")
 
-    def anharmonicity(self, representation: str = "bare", solver: str = "approx") -> float:
+    def anharmonicity(self, representation: str = "dressed", solver: str = "exact") -> float:
         if representation == "bare":
             return self.transmon.anharmonicity(solver = solver)
         elif representation == "dressed":
@@ -80,7 +85,7 @@ class TransmonCircuit:
         else:
             raise ValueError("Invalid representation. Choose 'bare' or 'dressed'.")
 
-    def f_resonator(self, representation = "bare", solver = "approx"):
+    def f_resonator(self, representation = "dressed", solver = "exact"):
         """
         Bare: Readout resonator frequency in the absence of qubit (after punchout)
         Dressed: Reference readout resonator frequency before state-dependent shift +/- chi."""
@@ -109,7 +114,7 @@ class TransmonCircuit:
             raise ValueError("readout_resonator.g_over_2pi is required for dispersive properties")
         return resonator.g_over_2pi
 
-    def qr_detuning(self, m: int = 0, representation = "bare", solver = "approx") -> float:
+    def qr_detuning(self, m: int = 0, representation = "bare", solver = "exact") -> float:
         """Qubit-readout detuning between
         m, m+1 transition frequency of transmon and resonator frequency.
         
@@ -121,21 +126,22 @@ class TransmonCircuit:
             - self.f_resonator(representation=representation, solver = solver)
         )
 
-    def f_resonator_for_transmon_level(self, m: int, solver = "approx"):
+    def f_resonator_for_transmon_level(self, m: int, solver = "exact"):
         """Resonator frequency associated in transmon level `m`."""
-        if solver == "approx": # "blais formula"
+        if solver == "approx":
             return (
                 self.f_resonator(representation="bare", solver="approx")
-                + self._lamb_shift(m, solver="approx") - self._lamb_shift(m + 1, solver="approx")
+                + self.lamb_shift(m, solver="approx")
+                - self.lamb_shift(m + 1, solver="approx")
             )
-        elif solver == "exact":
+        if solver == "exact":
             return self.dressed_transition_frequency(initial=(m, 0), final=(m, 1))
-
+        raise ValueError("Invalid solver. Choose 'exact' or 'approx'.")
     def dispersive_shift(self, m: int = 0, solver: str = "approx") -> float:
         """Transmon dispersive shift chi/2pi = (f_r,|e> - f_r,|g>) / 2."""
         return (
-            self.f_resonator_for_transmon_level(1, solver=solver)
-            - self.f_resonator_for_transmon_level(0, solver=solver)
+            self.f_resonator_for_transmon_level(m + 1, solver=solver)
+            - self.f_resonator_for_transmon_level(m, solver=solver)
         ) / 2
 
     @property
@@ -179,7 +185,7 @@ class TransmonCircuit:
 
         n_op = self.transmon.n_operator.astype(complex)
         n_g = self.transmon.ng
-        x_r = readout.quadrature_operator(angle=0.0).astype(complex)
+        x_r = 2 * readout.quadrature_operator(angle=0.0).astype(complex) # a + a†
 
         # We choose the prefactor so that the matrix element between |e,0> and |g,1> is g.
         n01 = self.transmon.n_matrix_element(0, 1)
@@ -305,20 +311,31 @@ class TransmonCircuit:
         f_resonator_ground: float,
         anharmonicity_dressed: float,
         punchout_shift: float,
-        kappa_internal_over_2pi: float,
         kappa_input_over_2pi: float | None,
-        kappa_output_over_2pi: float,
+        kappa_internal_over_2pi: float = 0.0,
+        kappa_output_over_2pi: float | None = None,
         coupling_geometry: str = "single_sided",
         ng: float = 0.0,
         n_cutoff: int = 30,
         photon_cutoff: int = 5,
         charge_drive_line: ChargeDriveLine | None = None,
-        solver = "approx"
+        solver: str = "approx",
     ) -> "TransmonCircuit":
         """Construct from dressed qubit/readout data and punchout shift.
 
-        punchout_shift = f_resonator_bare - f_resonator_ground ≈ (g/2pi)^2 / (f_q - f_r).
+        The punchout shift is defined as
+
+            punchout_shift = f_resonator_bare - f_resonator_ground = g_over_2pi^2 / detuning.
+
+        For solver="approx", the inversion uses perturbative dispersive formulas.
+
+        For solver="exact", the bare resonator frequency is fixed by the punchout
+        definition, and the bare qubit frequency, bare anharmonicity, and coupling
+        strength are refined by exact diagonalization.
         """
+
+        if solver not in {"approx", "exact"}:
+            raise ValueError("solver must be 'approx' or 'exact'")
 
         if f_qubit_dressed <= 0:
             raise ValueError("f_qubit_dressed must be positive")
@@ -340,299 +357,115 @@ class TransmonCircuit:
         if g0_squared <= 0:
             raise ValueError(
                 "Inferred g^2 is non-positive. "
-                "Check the sign of punchout_shift. "
-                "punchout_shift and detuning must have the same sign."
+                "Check the sign convention of punchout_shift and detuning. "
+                "They must have the same sign."
             )
 
         g0 = np.sqrt(g0_squared)
 
-        # construct a quadratic equation to find bare anharmonicity from the derived parameters.
-        anharmonicity0_roots = np.roots([
-            1, detuning0 - anharmonicity_dressed - punchout_shift,
-            - detuning0 * (anharmonicity_dressed + punchout_shift)]
-        )
-        anharmonicity0 = anharmonicity0_roots[np.argmin(np.abs(anharmonicity0_roots - anharmonicity_dressed))]
+        # Estimate bare anharmonicity from the dressed anharmonicity, 
+        # bare detuning, and punchout shift.
+        roots = np.roots([
+            1.0,
+            detuning0 - anharmonicity_dressed - 2 * punchout_shift,
+            -detuning0 * anharmonicity_dressed,
+        ])
+        print(roots)
+
+        real_roots = roots[np.isclose(roots.imag, 0.0)].real
+        if len(real_roots) == 0:
+            anharmonicity_bare0 = anharmonicity_dressed
+        else:
+            anharmonicity_bare0 = real_roots[
+                np.argmin(np.abs(real_roots - anharmonicity_dressed))
+            ]
+
+        def make_resonator(g_over_2pi: float) -> ReadoutResonator:
+            return ReadoutResonator(
+                frequency=f_resonator_bare,
+                kappa_internal_over_2pi=kappa_internal_over_2pi,
+                coupling_geometry=coupling_geometry,
+                kappa_input_over_2pi=kappa_input_over_2pi,
+                kappa_output_over_2pi=kappa_output_over_2pi,
+                g_over_2pi=g_over_2pi,
+                photon_cutoff=photon_cutoff,
+            )
+
+        def make_circuit(
+            f_qubit_bare: float,
+            anharmonicity_bare: float,
+            g_over_2pi: float,
+        ) -> "TransmonCircuit":
+            transmon = Transmon.from_f01_anharmonicity(
+                f01=f_qubit_bare,
+                anharmonicity=anharmonicity_bare,
+                ng=ng,
+                n_cutoff=n_cutoff,
+                solver="approx",
+            )
+
+            resonator = make_resonator(g_over_2pi=g_over_2pi)
+
+            return cls(
+                transmon=transmon,
+                readout_resonator=resonator,
+                charge_drive_line=charge_drive_line,
+            )
 
         if solver == "approx":
-            transmon = Transmon.from_f01_anharmonicity(f01=f_qubit_bare0, anharmonicity=anharmonicity0, solver="approx")
-            readout_resonator = ReadoutResonator(
-                frequency=f_resonator_bare, 
-                kappa_internal_over_2pi=kappa_internal_over_2pi,
-                kappa_input_over_2pi=kappa_input_over_2pi,
-                coupling_geometry=coupling_geometry,
-                kappa_output_over_2pi=kappa_output_over_2pi, g_over_2pi=g0,
-                photon_cutoff=photon_cutoff
-            )
-            return cls(
-                transmon=transmon, readout_resonator=readout_resonator, 
-                charge_drive_line=charge_drive_line
+            return make_circuit(
+                f_qubit_bare=f_qubit_bare0,
+                anharmonicity_bare=anharmonicity_bare0,
+                g_over_2pi=g0,
             )
 
         target = np.array([
             f_qubit_dressed,
             f_resonator_ground,
-            f_resonator_bare,
             anharmonicity_dressed,
         ])
 
         scale = np.array([
-            1e7,
-            1e7,
-            1e7,
+            1e6,
+            1e6,
             1e6,
         ])
 
-        def make_resonator(
-            f_resonator: float,
-            g_over_2pi: float,
-        ) -> ReadoutResonator:
-            if coupling_geometry == "single_sided":
-                return ReadoutResonator.single_sided(
-                    frequency=f_resonator,
-                    g_over_2pi=g_over_2pi,
-                    kappa_external_over_2pi=kappa_external_over_2pi,
-                    kappa_internal_over_2pi=kappa_internal_over_2pi,
-                    photon_cutoff=photon_cutoff,
-                )
+        def residual(params: np.ndarray) -> np.ndarray:
+            f_qubit_bare, minus_anharmonicity_bare, g_over_2pi = params
+            anharmonicity_bare = -minus_anharmonicity_bare
 
-            if coupling_geometry == "side_coupled":
-                return ReadoutResonator.side_coupled(
-                    frequency=f_resonator,
-                    g_over_2pi=g_over_2pi,
-                    kappa_external_over_2pi=kappa_external_over_2pi,
-                    kappa_internal_over_2pi=kappa_internal_over_2pi,
-                    photon_cutoff=photon_cutoff,
-                )
-
-            raise ValueError(
-                "This constructor supports single_sided or side_coupled. "
-                "For two_sided, pass an explicit ReadoutResonator separately."
-            )
-
-        def residual(log_params: np.ndarray) -> np.ndarray:
-            f_qubit_bare, minus_alpha_bare, g_over_2pi = np.exp(log_params)
-            alpha_bare = -minus_alpha_bare
-
-            transmon = Transmon.from_f01_anharmonicity(
-                f01=f_qubit_bare,
-                anharmonicity=alpha_bare,
-                ng=ng,
-                n_cutoff=n_cutoff,
-            )
-
-            resonator = make_resonator(
-                f_resonator=f_resonator_bare,
+            circuit = make_circuit(
+                f_qubit_bare=f_qubit_bare,
+                anharmonicity_bare=anharmonicity_bare,
                 g_over_2pi=g_over_2pi,
-            )
-
-            circuit = cls(
-                transmon=transmon,
-                readout_resonator=resonator,
-                charge_drive_line=charge_drive_line,
-            )
-
-            model = np.array([
-                circuit.f_qubit_dressed(method="exact"),
-                circuit.f_resonator_for_transmon_level(0),
-                circuit.anharmonicity(representation="dressed", solver="exact"),
-            ])
-
-            return (model - target) / scale
-
-        x0 = np.log([
-            f_qubit_bare0,
-            -alpha0,
-            g0,
-        ])
-
-        lower = np.log([
-            f_qubit_bare0 * 0.98,
-            -alpha0 * 0.5,
-            g0 * 0.2,
-        ])
-
-        upper = np.log([
-            f_qubit_bare0 * 1.02,
-            -alpha0 * 2.0,
-            g0 * 5.0,
-        ])
-
-        result = least_squares(
-            residual,
-            x0=x0,
-            bounds=(lower, upper),
-            xtol=1e-10,
-            ftol=1e-10,
-            gtol=1e-10,
-            max_nfev=200,
-        )
-
-        f_qubit_fit, minus_alpha_fit, g_fit = np.exp(result.x)
-        alpha_fit = -minus_alpha_fit
-
-        transmon = Transmon.from_f01_anharmonicity(
-            f01=f_qubit_fit,
-            anharmonicity=alpha_fit,
-            ng=ng,
-            n_cutoff=n_cutoff,
-        )
-
-        resonator = make_resonator(
-            f_resonator=f_res_bare_fixed,
-            g_over_2pi=g_fit,
-        )
-
-        return cls(
-            transmon=transmon,
-            readout_resonator=resonator,
-            charge_drive_line=charge_drive_line,
-        )
-
-    @classmethod
-    def from_measured_dressed_with_dispersive_shift(
-        cls,
-        f_qubit_dressed: float,
-        f_resonator_ground: float,
-        anharmonicity_dressed: float,
-        chi_over_2pi: float,
-        kappa_external_over_2pi: float,
-        kappa_internal_over_2pi: float = 0.0,
-        coupling_geometry: str = "single_sided",
-        ng: float = 0.0,
-        n_cutoff: int = 30,
-        photon_cutoff: int = 5,
-        charge_drive_line: ChargeDriveLine | None = None,
-    ) -> "TransmonCircuit":
-        """Construct from measured dressed qubit/readout quantities."""
-
-        if f_qubit_dressed <= 0:
-            raise ValueError("f_qubit_dressed must be positive")
-        if f_resonator_ground <= 0:
-            raise ValueError("f_resonator_ground must be positive")
-        if anharmonicity_dressed >= 0:
-            raise ValueError("anharmonicity_dressed should be negative")
-        if chi_over_2pi == 0:
-            raise ValueError("chi_over_2pi must be nonzero")
-
-        alpha0_over_2pi = anharmonicity_dressed
-        chi0_over_2pi = chi_over_2pi
-
-        f_res_dressed_center = f_resonator_ground + chi0_over_2pi
-        dressed_detuning = f_qubit_dressed - f_res_dressed_center
-
-        denominator = 1.0 + 2.0 * chi0_over_2pi / alpha0_over_2pi
-        if np.isclose(denominator, 0.0):
-            raise ValueError("Singular initial guess from dressed parameters")
-
-        detuning0 = (dressed_detuning - chi0_over_2pi) / denominator
-
-        g0_squared = chi0_over_2pi * detuning0 * (detuning0 + alpha0_over_2pi) / alpha0_over_2pi
-        if g0_squared <= 0:
-            raise ValueError(
-                "Initial inferred g^2 is non-positive. "
-                "Check the sign convention of chi_over_2pi."
-            )
-
-        g0 = np.sqrt(g0_squared)
-
-        f_qubit_bare0 = f_qubit_dressed - g0_squared / detuning0
-        f_resonator_bare0 = (
-            f_res_dressed_center
-            + g0_squared / (detuning0 + alpha0_over_2pi)
-        )
-
-        target = np.array([
-            f_qubit_dressed,
-            f_resonator_ground,
-            anharmonicity_dressed,
-            chi_over_2pi,
-        ])
-
-        scale = np.array([
-            1e6,
-            1e6,
-            1e6,
-            1e5,
-        ])
-
-        def make_resonator(
-            f_resonator: float,
-            g_over_2pi: float,
-        ) -> ReadoutResonator:
-            if coupling_geometry == "single_sided":
-                return ReadoutResonator.single_sided(
-                    frequency=f_resonator,
-                    g_over_2pi=g_over_2pi,
-                    kappa_external_over_2pi=kappa_external_over_2pi,
-                    kappa_internal_over_2pi=kappa_internal_over_2pi,
-                    photon_cutoff=photon_cutoff,
-                )
-
-            if coupling_geometry == "side_coupled":
-                return ReadoutResonator.side_coupled(
-                    frequency=f_resonator,
-                    g_over_2pi=g_over_2pi,
-                    kappa_external_over_2pi=kappa_external_over_2pi,
-                    kappa_internal_over_2pi=kappa_internal_over_2pi,
-                    photon_cutoff=photon_cutoff,
-                )
-
-            raise ValueError(
-                "This constructor supports single_sided or side_coupled. "
-                "For two_sided, pass an explicit ReadoutResonator separately."
-            )
-
-        def residual(log_params: np.ndarray) -> np.ndarray:
-            f_qubit_bare, minus_alpha_bare, f_res_bare, g_over_2pi = np.exp(log_params)
-            alpha_bare = -minus_alpha_bare
-
-            transmon = Transmon.from_f01_anharmonicity(
-                f01=f_qubit_bare,
-                anharmonicity=alpha_bare,
-                ng=ng,
-                n_cutoff=n_cutoff,
-            )
-
-            resonator = make_resonator(
-                f_resonator=f_res_bare,
-                g_over_2pi=g_over_2pi,
-            )
-
-            circuit = cls(
-                transmon=transmon,
-                readout_resonator=resonator,
-                charge_drive_line=charge_drive_line,
             )
 
             model = np.array([
                 circuit.f_qubit(0, representation="dressed", solver="exact"),
                 circuit.f_resonator_for_transmon_level(0, solver="exact"),
                 circuit.anharmonicity(representation="dressed", solver="exact"),
-                circuit.dispersive_shift(solver="exact")
             ])
 
             return (model - target) / scale
 
-        x0 = np.log([
+        x0 = [
             f_qubit_bare0,
-            -alpha0_over_2pi,
-            f_resonator_bare0,
+            -anharmonicity_bare0,
             g0,
-        ])
+        ]
 
-        lower = np.log([
-            f_qubit_bare0 * 0.98,
-            -alpha0_over_2pi * 0.5,
-            f_resonator_bare0 * 0.98,
-            g0 * 0.2,
-        ])
+        lower = [
+            f_qubit_bare0 * 0.95,
+            -anharmonicity_bare0 * 0.8,
+            g0 * 0.7,
+        ]
 
-        upper = np.log([
-            f_qubit_bare0 * 1.02,
-            -alpha0_over_2pi * 2.0,
-            f_resonator_bare0 * 1.02,
-            g0 * 5.0,
-        ])
+        upper = [
+            f_qubit_bare0 * 1.05,
+            -anharmonicity_bare0 * 1.2,
+            g0 * 1.3,
+        ]
 
         result = least_squares(
             residual,
@@ -641,26 +474,191 @@ class TransmonCircuit:
             xtol=1e-10,
             ftol=1e-10,
             gtol=1e-10,
-            max_nfev=200,
+            max_nfev=1000,
         )
 
-        f_qubit_fit, minus_alpha_fit, f_res_fit, g_fit = np.exp(result.x)
-        alpha_fit = -minus_alpha_fit
+        f_qubit_fit, minus_anharmonicity_fit, g_fit = result.x
+        anharmonicity_fit = -minus_anharmonicity_fit
 
-        transmon = Transmon.from_f01_anharmonicity(
-            f01=f_qubit_fit,
-            anharmonicity=alpha_fit,
-            ng=ng,
-            n_cutoff=n_cutoff,
-        )
-
-        resonator = make_resonator(
-            f_resonator=f_res_fit,
+        return make_circuit(
+            f_qubit_bare=f_qubit_fit,
+            anharmonicity_bare=anharmonicity_fit,
             g_over_2pi=g_fit,
         )
 
-        return cls(
-            transmon=transmon,
-            readout_resonator=resonator,
-            charge_drive_line=charge_drive_line,
-        )
+    # @classmethod
+    # def from_measured_dressed_with_dispersive_shift(
+    #     cls,
+    #     f_qubit_dressed: float,
+    #     f_resonator_ground: float,
+    #     anharmonicity_dressed: float,
+    #     chi_over_2pi: float,
+    #     kappa_external_over_2pi: float,
+    #     kappa_internal_over_2pi: float = 0.0,
+    #     coupling_geometry: str = "single_sided",
+    #     ng: float = 0.0,
+    #     n_cutoff: int = 30,
+    #     photon_cutoff: int = 5,
+    #     charge_drive_line: ChargeDriveLine | None = None,
+    # ) -> "TransmonCircuit":
+    #     """Construct from measured dressed qubit/readout quantities."""
+
+    #     if f_qubit_dressed <= 0:
+    #         raise ValueError("f_qubit_dressed must be positive")
+    #     if f_resonator_ground <= 0:
+    #         raise ValueError("f_resonator_ground must be positive")
+    #     if anharmonicity_dressed >= 0:
+    #         raise ValueError("anharmonicity_dressed should be negative")
+    #     if chi_over_2pi == 0:
+    #         raise ValueError("chi_over_2pi must be nonzero")
+
+    #     alpha0_over_2pi = anharmonicity_dressed
+    #     chi0_over_2pi = chi_over_2pi
+
+    #     f_res_dressed_center = f_resonator_ground + chi0_over_2pi
+    #     dressed_detuning = f_qubit_dressed - f_res_dressed_center
+
+    #     denominator = 1.0 + 2.0 * chi0_over_2pi / alpha0_over_2pi
+    #     if np.isclose(denominator, 0.0):
+    #         raise ValueError("Singular initial guess from dressed parameters")
+
+    #     detuning0 = (dressed_detuning - chi0_over_2pi) / denominator
+
+    #     g0_squared = chi0_over_2pi * detuning0 * (detuning0 + alpha0_over_2pi) / alpha0_over_2pi
+    #     if g0_squared <= 0:
+    #         raise ValueError(
+    #             "Initial inferred g^2 is non-positive. "
+    #             "Check the sign convention of chi_over_2pi."
+    #         )
+
+    #     g0 = np.sqrt(g0_squared)
+
+    #     f_qubit_bare0 = f_qubit_dressed - g0_squared / detuning0
+    #     f_resonator_bare0 = (
+    #         f_res_dressed_center
+    #         + g0_squared / (detuning0 + alpha0_over_2pi)
+    #     )
+
+    #     target = np.array([
+    #         f_qubit_dressed,
+    #         f_resonator_ground,
+    #         anharmonicity_dressed,
+    #         chi_over_2pi,
+    #     ])
+
+    #     scale = np.array([
+    #         1e6,
+    #         1e6,
+    #         1e6,
+    #         1e5,
+    #     ])
+
+    #     def make_resonator(
+    #         f_resonator: float,
+    #         g_over_2pi: float,
+    #     ) -> ReadoutResonator:
+    #         if coupling_geometry == "single_sided":
+    #             return ReadoutResonator.single_sided(
+    #                 frequency=f_resonator,
+    #                 g_over_2pi=g_over_2pi,
+    #                 kappa_external_over_2pi=kappa_external_over_2pi,
+    #                 kappa_internal_over_2pi=kappa_internal_over_2pi,
+    #                 photon_cutoff=photon_cutoff,
+    #             )
+
+    #         if coupling_geometry == "side_coupled":
+    #             return ReadoutResonator.side_coupled(
+    #                 frequency=f_resonator,
+    #                 g_over_2pi=g_over_2pi,
+    #                 kappa_external_over_2pi=kappa_external_over_2pi,
+    #                 kappa_internal_over_2pi=kappa_internal_over_2pi,
+    #                 photon_cutoff=photon_cutoff,
+    #             )
+
+    #         raise ValueError(
+    #             "This constructor supports single_sided or side_coupled. "
+    #             "For two_sided, pass an explicit ReadoutResonator separately."
+    #         )
+
+    #     def residual(log_params: np.ndarray) -> np.ndarray:
+    #         f_qubit_bare, minus_alpha_bare, f_res_bare, g_over_2pi = np.exp(log_params)
+    #         alpha_bare = -minus_alpha_bare
+
+    #         transmon = Transmon.from_f01_anharmonicity(
+    #             f01=f_qubit_bare,
+    #             anharmonicity=alpha_bare,
+    #             ng=ng,
+    #             n_cutoff=n_cutoff,
+    #         )
+
+    #         resonator = make_resonator(
+    #             f_resonator=f_res_bare,
+    #             g_over_2pi=g_over_2pi,
+    #         )
+
+    #         circuit = cls(
+    #             transmon=transmon,
+    #             readout_resonator=resonator,
+    #             charge_drive_line=charge_drive_line,
+    #         )
+
+    #         model = np.array([
+    #             circuit.f_qubit(0, representation="dressed", solver="exact"),
+    #             circuit.f_resonator_for_transmon_level(0, solver="exact"),
+    #             circuit.anharmonicity(representation="dressed", solver="exact"),
+    #             circuit.dispersive_shift(solver="exact")
+    #         ])
+
+    #         return (model - target) / scale
+
+    #     x0 = np.log([
+    #         f_qubit_bare0,
+    #         -alpha0_over_2pi,
+    #         f_resonator_bare0,
+    #         g0,
+    #     ])
+
+    #     lower = np.log([
+    #         f_qubit_bare0 * 0.98,
+    #         -alpha0_over_2pi * 0.5,
+    #         f_resonator_bare0 * 0.98,
+    #         g0 * 0.2,
+    #     ])
+
+    #     upper = np.log([
+    #         f_qubit_bare0 * 1.02,
+    #         -alpha0_over_2pi * 2.0,
+    #         f_resonator_bare0 * 1.02,
+    #         g0 * 5.0,
+    #     ])
+
+    #     result = least_squares(
+    #         residual,
+    #         x0=x0,
+    #         bounds=(lower, upper),
+    #         xtol=1e-10,
+    #         ftol=1e-10,
+    #         gtol=1e-10,
+    #         max_nfev=200,
+    #     )
+
+    #     f_qubit_fit, minus_alpha_fit, f_res_fit, g_fit = np.exp(result.x)
+    #     alpha_fit = -minus_alpha_fit
+
+    #     transmon = Transmon.from_f01_anharmonicity(
+    #         f01=f_qubit_fit,
+    #         anharmonicity=alpha_fit,
+    #         ng=ng,
+    #         n_cutoff=n_cutoff,
+    #     )
+
+    #     resonator = make_resonator(
+    #         f_resonator=f_res_fit,
+    #         g_over_2pi=g_fit,
+    #     )
+
+    #     return cls(
+    #         transmon=transmon,
+    #         readout_resonator=resonator,
+    #         charge_drive_line=charge_drive_line,
+    #     )
