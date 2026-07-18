@@ -22,14 +22,14 @@ class Transmon:
         Charging energy EC/h in Hz.
     ng:
         Static offset charge in units of Cooper-pair charge 2e.
-    n_cutoff:
-        Charge basis runs from -n_cutoff to +n_cutoff.
+    charge_cutoff:
+        Charge basis runs from -charge_cutoff to +charge_cutoff.
     """
 
     EJ_over_h: float
     EC_over_h: float
     ng: float = 0.0
-    n_cutoff: int = 30
+    charge_cutoff: int = 30
 
 
     def __post_init__(self) -> None:
@@ -37,8 +37,8 @@ class Transmon:
             raise ValueError("EJ_over_h must be positive")
         if self.EC_over_h <= 0:
             raise ValueError("EC_over_h must be positive")
-        if self.n_cutoff < 2:
-            raise ValueError("n_cutoff must be at least 2")
+        if self.charge_cutoff < 2:
+            raise ValueError("charge_cutoff must be at least 2")
 
     @property
     def EJ(self) -> float:
@@ -62,8 +62,8 @@ class Transmon:
 
     @property
     def n_values(self) -> np.ndarray:
-        """Charge-basis values n = -n_cutoff, ..., +n_cutoff."""
-        return np.arange(-self.n_cutoff, self.n_cutoff + 1, dtype=float)
+        """Charge-basis values n = -charge_cutoff, ..., +charge_cutoff."""
+        return np.arange(-self.charge_cutoff, self.charge_cutoff + 1, dtype=float)
 
     @cached_property
     def n_operator(self) -> np.ndarray:
@@ -76,7 +76,7 @@ class Transmon:
         EJ_over_h: float | None = None,
         EC_over_h: float | None = None,
         ng: float | None = None,
-        n_cutoff: int | None = None,
+        charge_cutoff: int | None = None,
     ) -> np.ndarray:
         """Construct the transmon Hamiltonian in the charge basis.
 
@@ -94,8 +94,8 @@ class Transmon:
         ng : float, optional
             Offset charge in units of Cooper-pair charge (2e).
             Defaults to the value stored in the object.
-        n_cutoff : int, optional
-            Charge basis extends from -n_cutoff to +n_cutoff.
+        charge_cutoff : int, optional
+            Charge basis extends from -charge_cutoff to +charge_cutoff.
             Defaults to the value stored in the object.
 
         Returns
@@ -109,10 +109,10 @@ class Transmon:
             EC_over_h = self.EC_over_h
         if ng is None:
             ng = self.ng
-        if n_cutoff is None:
-            n_cutoff = self.n_cutoff
+        if charge_cutoff is None:
+            charge_cutoff = self.charge_cutoff
 
-        n_vals = np.arange(-n_cutoff, n_cutoff + 1, dtype=float)
+        n_vals = np.arange(-charge_cutoff, charge_cutoff + 1, dtype=float)
         dim = len(n_vals)
 
         H = np.zeros((dim, dim), dtype=float)
@@ -245,7 +245,7 @@ class Transmon:
         f01: float,
         anharmonicity: float,
         ng: float = 0.0,
-        n_cutoff: int = 30,
+        charge_cutoff: int = 30,
         solver: str = "approx"
     ) -> "Transmon":
         """Construct a transmon from measured transition frequency.
@@ -262,7 +262,7 @@ class Transmon:
             Target anharmonicity f12 - f01 in Hz.
         ng : float, optional
             Offset charge.
-        n_cutoff : int, optional
+        charge_cutoff : int, optional
             Charge basis cutoff.
         solver : {"exact", "approx"}, optional
             Method used to compute the spectrum.
@@ -287,11 +287,11 @@ class Transmon:
         EJ0_over_h = (f01 + EC0_over_h) ** 2 / (8.0 * EC0_over_h)
 
         if solver == "approx":
-            return cls(EJ_over_h=EJ0_over_h, EC_over_h=EC0_over_h, ng=ng, n_cutoff=n_cutoff)
+            return cls(EJ_over_h=EJ0_over_h, EC_over_h=EC0_over_h, ng=ng, charge_cutoff=charge_cutoff)
         elif solver == "exact":
             def residual(log_params: np.ndarray) -> np.ndarray:
                 EJ_over_h, EC_over_h = np.exp(log_params)
-                t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, n_cutoff=n_cutoff)
+                t = cls(EJ_over_h=EJ_over_h, EC_over_h=EC_over_h, ng=ng, charge_cutoff=charge_cutoff)
                 f01_fit = t.f01(solver = solver)
                 anh_fit = t.anharmonicity(solver = solver)
                 return np.array([
@@ -307,4 +307,4 @@ class Transmon:
                 gtol=1e-12,
             )
             EJ_fit, EC_fit = np.exp(result.x)
-            return cls(EJ_over_h=EJ_fit, EC_over_h=EC_fit, ng=ng, n_cutoff=n_cutoff)
+            return cls(EJ_over_h=EJ_fit, EC_over_h=EC_fit, ng=ng, charge_cutoff=charge_cutoff)

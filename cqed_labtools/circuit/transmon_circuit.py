@@ -340,13 +340,9 @@ class TransmonCircuit:
         f_resonator_ground: float,
         anharmonicity_dressed: float,
         punchout_shift: float,
-        kappa_input_over_2pi: float | None,
-        kappa_internal_over_2pi: float = 0.0,
-        kappa_output_over_2pi: float | None = None,
-        coupling_geometry: str = "single_sided", # TODO: want to avoid specifying coupling geometry in these constructurs; rather they have to be added by making ReadoutResonator unfrozen.
         ng: float = 0.0,
-        n_cutoff: int = 30,
-        photon_cutoff: int = 5,
+        charge_cutoff: int = 30,
+        photon_cutoff: int = 10,
         solver: str = "approx",
     ) -> "TransmonCircuit":
         """Construct from dressed qubit/readout data and punchout shift.
@@ -410,10 +406,6 @@ class TransmonCircuit:
         def make_resonator(g_over_2pi: float) -> ReadoutResonator:
             return ReadoutResonator(
                 frequency=f_resonator_bare,
-                kappa_internal_over_2pi=kappa_internal_over_2pi,
-                coupling_geometry=coupling_geometry,
-                kappa_input_over_2pi=kappa_input_over_2pi,
-                kappa_output_over_2pi=kappa_output_over_2pi,
                 g_over_2pi=g_over_2pi,
                 photon_cutoff=photon_cutoff,
             )
@@ -427,7 +419,7 @@ class TransmonCircuit:
                 f01=f_qubit_bare,
                 anharmonicity=anharmonicity_bare,
                 ng=ng,
-                n_cutoff=n_cutoff,
+                charge_cutoff=charge_cutoff,
                 solver="approx",
             )
 
@@ -505,13 +497,9 @@ class TransmonCircuit:
         f_resonator_ground: float,
         anharmonicity_dressed: float,
         chi_over_2pi: float,
-        kappa_input_over_2pi: float | None,
-        kappa_internal_over_2pi: float = 0.0,
-        kappa_output_over_2pi: float | None = None,
-        coupling_geometry: str = "single_sided",
         ng: float = 0.0,
-        n_cutoff: int = 30,
-        photon_cutoff: int = 5,
+        charge_cutoff: int = 30,
+        photon_cutoff: int = 10,
         solver: str = "approx",
     ) -> "TransmonCircuit":
         """Construct from dressed qubit/readout data and dispersive shift.
@@ -599,10 +587,6 @@ class TransmonCircuit:
         ) -> ReadoutResonator:
             return ReadoutResonator(
                 frequency=f_resonator_bare,
-                kappa_internal_over_2pi=kappa_internal_over_2pi,
-                coupling_geometry=coupling_geometry,
-                kappa_input_over_2pi=kappa_input_over_2pi,
-                kappa_output_over_2pi=kappa_output_over_2pi,
                 g_over_2pi=g_over_2pi,
                 photon_cutoff=photon_cutoff,
             )
@@ -617,7 +601,7 @@ class TransmonCircuit:
                 f01=f_qubit_bare,
                 anharmonicity=anharmonicity_bare,
                 ng=ng,
-                n_cutoff=n_cutoff,
+                charge_cutoff=charge_cutoff,
                 solver="approx",
             )
 
