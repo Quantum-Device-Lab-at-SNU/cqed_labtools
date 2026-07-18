@@ -343,7 +343,7 @@ class TransmonCircuit:
         ng: float = 0.0,
         charge_cutoff: int = 30,
         photon_cutoff: int = 10,
-        solver: str = "approx",
+        solver: str = "exact",
     ) -> "TransmonCircuit":
         """Construct from dressed qubit/readout data and punchout shift.
 
@@ -500,7 +500,7 @@ class TransmonCircuit:
         ng: float = 0.0,
         charge_cutoff: int = 30,
         photon_cutoff: int = 10,
-        solver: str = "approx",
+        solver: str = "exact",
     ) -> "TransmonCircuit":
         """Construct from dressed qubit/readout data and dispersive shift.
 
