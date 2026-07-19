@@ -143,13 +143,7 @@ circuit = TransmonCircuit.from_dressed_freqs_with_punchout_shift(
     f_qubit_dressed=5.0 * GHz,
     f_resonator_ground=6.5 * GHz,
     anharmonicity_dressed=-250 * MHz,
-    punchout_shift=2.0 * MHz,
-    kappa_input_over_2pi=1.0 * MHz,
-    kappa_internal_over_2pi=0.05 * MHz,
-    coupling_geometry="single_sided",
-    n_cutoff=20,
-    photon_cutoff=4,
-    solver="exact",
+    punchout_shift=2.0 * MHz
 )
 ```
 
@@ -169,13 +163,7 @@ circuit = TransmonCircuit.from_dressed_freqs_with_dispersive_shift(
     f_qubit_dressed=5.0 * GHz,
     f_resonator_ground=6.5 * GHz,
     anharmonicity_dressed=-250 * MHz,
-    chi_over_2pi=-1.0 * MHz,
-    kappa_input_over_2pi=1.0 * MHz,
-    kappa_internal_over_2pi=0.05 * MHz,
-    coupling_geometry="single_sided",
-    n_cutoff=20,
-    photon_cutoff=4,
-    solver="exact",
+    chi_over_2pi=-1.0 * MHz
 )
 ```
 
