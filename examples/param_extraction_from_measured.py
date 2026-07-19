@@ -39,6 +39,7 @@ measured_data_set = {
     }
 }
 
+tc_list = []
 extracted_data = {}
 for _q in measured_data_set.keys():
     q_data = measured_data_set[_q]
@@ -58,3 +59,5 @@ for _q in measured_data_set.keys():
         'f_qubit_bare': tc.f_qubit(0, representation='bare'),
         'f_resonator_bare': tc.f_resonator(representation='bare')
     }
+
+    tc_list.append(tc)
